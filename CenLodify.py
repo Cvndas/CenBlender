@@ -16,187 +16,101 @@ import CenLib
 from bpy.props import BoolProperty, PointerProperty, StringProperty
 from bpy.types import PropertyGroup
 
-# ---------- helpers ----------
-
-
-def findLayerCollection(layer, targetCollection):
-    if layer.collection == targetCollection:
-        return layer
-    for child in layer.children:
-        hit = findLayerCollection(child, targetCollection)
-        if hit:
-            return hit
-
-
-def ApplyModsOnObject(obj):
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    if bpy.context.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-    bpy.ops.object.convert(target="MESH")
-    obj.select_set(False)
-    bpy.context.view_layer.objects.active = None
-
-
-def JoinObjectsTogether(objects):
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in objects:
-        o.select_set(True)
-    bpy.context.view_layer.objects.active = objects[0]
-    bpy.ops.object.join()
-    return bpy.context.view_layer.objects.active
-
-
-def SetOriginToWorldOrigin(targetObject):
-    if bpy.context.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-    cur = bpy.context.scene.cursor
-    prev = cur.location.copy()
-    cur.location = (0, 0, 0)
-    bpy.context.view_layer.objects.active = targetObject
-    targetObject.select_set(True)
-    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
-    cur.location = prev
-    targetObject.select_set(False)
-    bpy.context.view_layer.objects.active = None
-
-
-def ApplyScaleAndRotation(targetObject):
-    bpy.context.view_layer.objects.active = targetObject
-    targetObject.select_set(True)
-
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-
-    targetObject.select_set(False)
-    bpy.context.view_layer.objects.active = None
-
-
-def LinkIntoSameCollection(victim, invader):
-    for col in victim.users_collection:
-        col.objects.link(invader)
-
-
-def CreateLod1Object(lod0Object):
-    lod1 = lod0Object.copy()
-    if lod0Object.data:
-        lod1.data = lod0Object.data.copy()
-    LinkIntoSameCollection(lod0Object, lod1)
-    dec = lod1.modifiers.new(name="Lod1Decimate", type="DECIMATE")
-    dec.decimate_type = "COLLAPSE"
-    dec.ratio = 0.5
-    lod1.name = lod0Object.name.removesuffix("_LOD0") + "_LOD1"
-    return lod1
-
-
-def _iter_objects_recursive(col, seen_ptrs):
-    # Yield all unique objects in this collection and its children
-    for obj in col.objects:
-        pid = obj.as_pointer()
-        if pid not in seen_ptrs:
-            seen_ptrs.add(pid)
-            yield obj
-    for child in col.children:
-        yield from _iter_objects_recursive(child, seen_ptrs)
-
-
+# ---------- NEW empty functions ----------
 def ConvertPartCollectionToLodCollection():
-    partsCollection = bpy.context.view_layer.active_layer_collection.collection
-    if not partsCollection.name.endswith("-Parts"):
-        CenLib.PopupError(
-            f'The selected collection "{partsCollection.name}" does not end with "-Parts"'
-        )
-        return {"CANCELLED"}
+    partCollection = CenLib.GetActiveCollection()
+    if not partCollection or partCollection.name.endswith("-Parts") == False:
+        CenLib.PopupError("Active collection did not end with -Parts")
+        return CenLib.Cancelled()
 
-    bpy.ops.object.select_all(action="DESELECT")
+    CenLib.MakeVisible(partCollection)
+    CenLib.ClearSelection() 
 
-    # New collection name: "XXX-Parts" -> "XXX-V"
-    lodCollectionName = partsCollection.name.removesuffix("-Parts") + "-CenLods"
+    lodCollectionName = partCollection.name.removesuffix("-Parts") + "-CenLods"
 
-    # if the lodcollection already existed, create a new collection instead, to prevent overwriting the old on accident
-    existingLodCollection = bpy.data.collections.get(lodCollectionName)
+    existingLodCollection = CenLib.GetCollectionByName(lodCollectionName)
     if existingLodCollection:
-        lodCollectionName = (
-            lodCollectionName.removesuffix("-CenLods") + "_NEW_FROM_PARTS-CenLods"
-        )
+        existingLodCollection.name = "OLDVERSION_" + existingLodCollection.name
+        existingLodObjects = CenLib.GetObjectsInCollection(existingLodCollection)
+        for existingLod in existingLodObjects:
+            existingLod.name = "OLDVERSION_" + existingLod.name
 
-    lodCollection = bpy.data.collections.new(lodCollectionName)
-    bpy.context.scene.collection.children.link(lodCollection)
+        CenLib.ExcludeCollection(existingLodCollection)
 
-    duped = []
-    seen_ptrs = set()
-    partsCollectionObjects = list(_iter_objects_recursive(partsCollection, seen_ptrs))
-    for obj in partsCollectionObjects:
-        d = obj.copy()
-        if obj.data:
-            d.data = obj.data.copy()
-        lodCollection.objects.link(d)
-        ApplyModsOnObject(d)
-        duped.append(d)
+    lodCollection = CenLib.CreateCollection(lodCollectionName)
+    originalPartObjects = CenLib.GetObjectsInCollection(partCollection)
+    for original in originalPartObjects:
+        dupe = CenLib.DuplicateObject(original)
+        CenLib.ApplyAllModifiersOnObject(dupe)
+        CenLib.MoveToCollection(dupe, lodCollection)
 
-    if not duped:
-        CenLib.PopupError("No objects found to convert in the -Parts collection.")
-        return {"CANCELLED"}
-
-    joined = JoinObjectsTogether(duped)
-    SetOriginToWorldOrigin(joined)
-    ApplyScaleAndRotation(joined)
+    joined = CenLib.JoinObjects(CenLib.GetObjectsInCollection(lodCollection))
+    if joined == None:
+        CenLib.PopupError("Attempted to join 0 objects.")
+    CenLib.SetOriginToWorldOrigin(joined)
+    CenLib.ApplyScale(joined)
+    CenLib.ApplyRotation(joined)
 
     joined.name = lodCollectionName.removesuffix("-CenLods") + "-V_LOD0"
     lod0 = joined
     lod1 = CreateLod1Object(lod0)
 
-    # Hide the hi-poly (LOD0) by default
-    lod0.hide_set(True)
+    CenLib.HideFromViewport(lod0)
 
-    # Hide the original parts collection in the active view layer
-    parts_layer = findLayerCollection(
-        bpy.context.view_layer.layer_collection, partsCollection
-    )
-    if parts_layer:
-        parts_layer.exclude = True
+    CenLib.ExcludeCollection(partCollection)
 
-    return {"FINISHED"}
+    return CenLib.Finished()
+
+
+
+
+
+    
+
 
 
 def UpdateLods():
-    lodCollection = bpy.context.view_layer.active_layer_collection.collection
-    if not lodCollection.name.endswith("-CenLods"):
-        CenLib.PopupError(
-            f'The selected collection "{lodCollection.name}" does not end with "-CenLods"'
-        )
-        return {"CANCELLED"}
+    lodCollection = CenLib.GetActiveCollection()
+    if not lodCollection or not lodCollection.name.endswith("-CenLods"):
+        CenLib.PopupError("Active collection didn't end with -CenLods")
+        return CenLib.Cancelled()
 
-    lod1 = next((o for o in lodCollection.objects if o.name.endswith("_LOD1")), None)
-    if lod1 is None:
-        CenLib.PopupError(
-            f'Failed to find an object ending with "_LOD1" in "{lodCollection.name}"'
-        )
-        return {"CANCELLED"}
+    CenLib.MakeVisible(lodCollection)
+    lod1Object = None
+    lod0Object = None
+    oldRatio = 0.5
+    for obj in CenLib.GetObjectsInCollection(lodCollection):
+        if obj.name.endswith("-V_LOD1"):
+            lod1Object = obj
+        elif obj.name.endswith("-V_LOD0"):
+            lod0Object = obj
+        else:
+            CenLib.DeleteObject(obj)
 
-    oldDecimate = lod1.modifiers.get("Lod1Decimate")
-    if not oldDecimate or oldDecimate.type != "DECIMATE":
-        CenLib.PopupError(f'Could not find "Lod1Decimate" (DECIMATE) on "{lod1.name}"')
-        return {"CANCELLED"}
+    if not lod0Object:
+        CenLib.PopupError("Failed to find the lod0 object in " + lodCollection.name)
+        return CenLib.Cancelled()
 
-    old_ratio = oldDecimate.ratio
+    if lod1Object:
+        oldLod1Decimate = CenLib.GetModifier(lod1Object, "Lod1Decimate", 0)
+        if oldLod1Decimate:
+            oldRatio = CenLib.GetModifierValue(oldLod1Decimate, "ratio")
+        CenLib.DeleteObject(lod1Object)
 
-    # Remove old LOD1
-    bpy.data.objects.remove(lod1, do_unlink=True)
+    newLod1 = CreateLod1Object(lod0Object)
+    newLod1Decimate = CenLib.GetModifier(newLod1, "Lod1Decimate")
+    CenLib.SetModifierProperty(newLod1Decimate, "ratio", oldRatio)
 
-    lod0 = next((o for o in lodCollection.objects if o.name.endswith("_LOD0")), None)
-    if lod0 is None:
-        CenLib.PopupError(
-            f'Failed to find an object ending with "_LOD0" in "{lodCollection.name}"'
-        )
-        return {"CANCELLED"}
+    return CenLib.Finished()
 
-    newLod1 = CreateLod1Object(lod0)
-    newDec = newLod1.modifiers.get("Lod1Decimate")
-    newDec.ratio = old_ratio
 
-    lod0.hide_set(True)
-    return {"FINISHED"}
+    
+
+
+            
+    
+
+
 
 
 def MakeLod1Collection():
@@ -206,7 +120,7 @@ def MakeLod1Collection():
         CenLib.PopupError(
             f"Selected collection {originalCollection.name} did not end ith _LOD0! Aborting..."
         )
-        return {"CANCELLED"}
+        return CenLib.Cancelled()
 
     originalObjects = CenLib.GetObjectsInCollection(originalCollection)
     for og in originalObjects:
@@ -214,7 +128,7 @@ def MakeLod1Collection():
             CenLib.PopupError(
                 f"Object from original collection {og.name} did not end with _LOD0! Aborting..."
             )
-            return {"CANCELLED"}
+            return CenLib.Cancelled()
 
     dupeName = originalCollection.name.replace("_LOD0", "_LOD1")
     dupedCollection = CenLib.DuplicateCollection(originalCollection, dupeName)
@@ -222,7 +136,7 @@ def MakeLod1Collection():
     duplicatedObjects = CenLib.GetObjectsInCollection(dupedCollection)
     for dupe in duplicatedObjects:
         decimateMod = CenLib.AddModifier(dupe, "Lod1Decimate", "DECIMATE")
-        CenLib.SetModifierProperty(dupe, "Lod1Decimate", 0, "ratio", 0.3)
+        CenLib.SetModifierProperty(decimateMod, "ratio", 0.3)
         dupe.name = dupe.name.split("_LOD0")[0] + "_LOD1"
         CenLib.SelectObject(
             dupe
@@ -230,7 +144,7 @@ def MakeLod1Collection():
 
     end = time.time()
     CenLib.PopupPrint(f"Completed Make Lod1 Collection! It took {end - start} seconds!")
-    return {"FINISHED"}
+    return CenLib.Finished()
 
 
 def NameLod0sInCollection():
@@ -239,20 +153,57 @@ def NameLod0sInCollection():
         CenLib.PopupError(
             f"Selected collection {targetCollection.name} doesn't end with _LOD0! Aborting..."
         )
-        return {"CANCELLED"}
+        return CenLib.Cancelled()
 
     objsToBeNamed = CenLib.GetObjectsInCollection(targetCollection)
-    nameTemplate = targetCollection.split("_LOD")[0] + "["
+    nameTemplate = targetCollection.name.split("_LOD")[0] + "["
     objectIndex = 1
     for obj in objsToBeNamed:
         obj.name = f"{nameTemplate}{objectIndex}]-V_LOD0"
         objectIndex += 1
 
     CenLib.PopupPrint(f"Completed Name Lod1s In Collection!")
-    return {"FINISHED"}
+    return CenLib.Finished()
+
+
+
+
+# ---------- helpers ----------
+
+
+def CreateLod1Object(lod0: bpy.types.Object)-> bpy.types.Object:
+    lod1 = CenLib.DuplicateObject(lod0)
+    decimate = CenLib.AddModifier(lod1, "Lod1Decimate", "DECIMATE")
+    CenLib.SetModifierProperty(decimate, "decimate_type", "COLLAPSE")
+    CenLib.SetModifierProperty(decimate, "ratio", 0.5)
+    lod1.name = lod0.name.removesuffix("_LOD0") + "_LOD1"
+    return lod1
+
+
+
 
 
 # ---------- UI ----------
+class CENLODIFY_OT_ConvertParts(bpy.types.Operator):
+    bl_idname = "cenlodify.convert_parts"
+    bl_label = "Convert -Parts to -CenLods"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        ConvertPartCollectionToLodCollection()
+        return CenLib.Finished()
+
+
+class CENLODIFY_OT_UpdateLods(bpy.types.Operator):
+    bl_idname = "cenlodify.update_lods"
+    bl_label = "Update -CenLods"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        UpdateLods()
+        return CenLib.Finished()
+
+
 class CENLODIFY_OT_MakeLod1(bpy.types.Operator):
     bl_idname = "cenlodify.make_lod1"
     bl_label = "Make LOD1 Collection"
@@ -260,7 +211,7 @@ class CENLODIFY_OT_MakeLod1(bpy.types.Operator):
 
     def execute(self, context):
         MakeLod1Collection()
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENLODIFY_OT_NameLod0s(bpy.types.Operator):
@@ -270,28 +221,7 @@ class CENLODIFY_OT_NameLod0s(bpy.types.Operator):
 
     def execute(self, context):
         NameLod0sInCollection()
-        return {"FINISHED"}
-
-
-class CENLODIFY_OT_process(bpy.types.Operator):
-    bl_idname = "cenlodify.process"
-    bl_label = "Convert / Update LODs"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        col = context.view_layer.active_layer_collection.collection
-        name = col.name if col else "<none>"
-        if not col:
-            CenLib.PopupError("No active collection selected.")
-            return {"CANCELLED"}
-
-        if name.endswith("-Parts"):
-            return ConvertPartCollectionToLodCollection()
-        elif name.endswith("-CenLods"):
-            return UpdateLods()
-        else:
-            CenLib.PopupError('Active collection must end with "-Parts" or "-CenLods".')
-            return {"CANCELLED"}
+        return CenLib.Finished()
 
 
 class CENLODIFY_PT_panel(bpy.types.Panel):
@@ -311,7 +241,9 @@ class CENLODIFY_PT_panel(bpy.types.Panel):
         layout.label(text=f"Active: {col.name if col else '<none>'}")
         layout.separator()
 
-        layout.operator("cenlodify.process", icon="MOD_DECIM")
+        layout.operator("cenlodify.convert_parts", icon="IMPORT")
+        layout.operator("cenlodify.update_lods", icon="FILE_REFRESH")
+        layout.separator()
         layout.operator("cenlodify.name_lod0s", icon="OUTLINER_OB_FONT")
         layout.operator("cenlodify.make_lod1", icon="ADD")
 
@@ -319,7 +251,8 @@ class CENLODIFY_PT_panel(bpy.types.Panel):
 # ---------- register ----------
 
 classes = (
-    CENLODIFY_OT_process,
+    CENLODIFY_OT_ConvertParts,
+    CENLODIFY_OT_UpdateLods,
     CENLODIFY_OT_MakeLod1,
     CENLODIFY_OT_NameLod0s,
     CENLODIFY_PT_panel,
