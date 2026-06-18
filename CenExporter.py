@@ -9,68 +9,24 @@ bl_info = {
 }
 
 import os
+import CenLib
 
 import bpy
 from bpy.props import PointerProperty, StringProperty
 from bpy.types import PropertyGroup
 
 
-# ---------- helpers ----------
-def popup_error(msg):
-    def draw(self, _):
-        self.layout.label(text=msg)
-
-    bpy.context.window_manager.popup_menu(
-        draw, title="CenExporter Error!", icon="ERROR"
-    )
 
 
-def popup_info(msg):
-    def draw(self, _):
-        self.layout.label(text=msg)
-
-    bpy.context.window_manager.popup_menu(draw, title="CenExporter", icon="INFO")
-
-
-def get_active_collection_objects():
-    """Get all mesh objects in the active collection (including children)"""
-    active_layer = bpy.context.view_layer.active_layer_collection
-    if not active_layer:
-        return []
-
-    active_collection = active_layer.collection
-
-    # Recursively get all mesh objects in the collection
-    def get_objects_recursive(collection):
-        objects = []
-        for obj in collection.objects:
-            if obj.type == "MESH":
-                objects.append(obj)
-        for child in collection.children:
-            objects.extend(get_objects_recursive(child))
-        return objects
-
-    return get_objects_recursive(active_collection)
-
-
-def export_fbx(filepath, obj):
-    """Export a single object to FBX at the specified filepath"""
-    # Store current selection state
-    prev_selected = [obj for obj in bpy.context.selected_objects]
-    prev_active = bpy.context.view_layer.objects.active
-
-    # Store current hide state
-    was_hidden = obj.hide_get()
+def ExportFbx(filepath, obj):
+    prevSelected = CenLib.GetSelectedObjects()
+    prevActive = CenLib.GetActiveObject()
+    wasHidden = CenLib.ObjectIsHidden(obj) 
 
     try:
-        # Unhide the object if it's hidden
-        if was_hidden:
-            obj.hide_set(False)
-
-        # Select only the object we want to export
-        bpy.ops.object.select_all(action="DESELECT")
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
+        CenLib.MakeObjectVisible(obj)
+        CenLib.ClearSelection()
+        CenLib.SelectObject(obj)
 
         # Export
         bpy.ops.export_scene.fbx(
@@ -91,80 +47,81 @@ def export_fbx(filepath, obj):
         return True
 
     except Exception as e:
-        popup_error(f"Export failed for {obj.name}: {str(e)}")
+        CenLib.PopupError(f"Export failed for {obj.name}: {str(e)}")
         return False
 
     finally:
         # Restore hide state
-        if was_hidden:
-            obj.hide_set(True)
+        if wasHidden:
+            CenLib.MakeObjectHidden(obj)
 
         # Restore selection state
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in prev_selected:
-            if obj.name in bpy.data.objects:
-                obj.select_set(True)
-        if prev_active and prev_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = prev_active
+        CenLib.ClearSelection()
+        for obj in prevSelected:
+            CenLib.SelectObject(obj)
+        
+        if CenLib.ObjectExists(prevActive):
+            CenLib.SelectObject(prevActive)
 
 
-def export_to_path(path_property_name, context):
-    """Generic export function that uses the path from a property"""
+def ExportToPath(path_property_name, context):
     settings = context.scene.cenexporter
     path = getattr(settings, path_property_name, "")
 
     if not path:
-        popup_error(
+        CenLib.PopupError(
             f"No path set for {path_property_name.replace('_path', '').title()}"
         )
-        return {"CANCELLED"}
+        return CenLib.Cancelled()
 
     # Expand blender path variables
     directory = bpy.path.abspath(path)
 
     # Check if directory exists
     if not os.path.exists(directory):
-        popup_error(f"Directory does not exist: {directory}")
-        return {"CANCELLED"}
+        CenLib.PopupError(f"Directory does not exist: {directory}")
+        return CenLib.Cancelled()
 
     # Get objects from active collection
-    objects = get_active_collection_objects()
+    objects = CenLib.GetObjectsInCollection(CenLib.GetActiveCollection())
     if not objects:
-        return {"CANCELLED"}
+        return CenLib.Cancelled()
 
     # Store all objects' hide states to restore later
-    hide_states = {}
+    hideStates = {}
     for obj in objects:
-        hide_states[obj] = obj.hide_get()
+        hideStates[obj] = CenLib.ObjectIsHidden(obj)
 
     try:
         # Export each object individually
-        success_count = 0
+        successCount = 0
         for obj in objects:
             # Create filename from object name
             filename = f"{obj.name}.fbx"
             filepath = os.path.join(directory, filename)
 
-            if export_fbx(filepath, obj):
-                success_count += 1
+            if ExportFbx(filepath, obj):
+                successCount += 1
 
         # Report results
-        if success_count == len(objects):
-            popup_info(
-                f"Successfully exported all {success_count} objects to:\n{directory}"
+        if successCount == len(objects):
+            CenLib.PopupPrint(
+                f"Successfully exported all {successCount} objects to:\n{directory}"
             )
         else:
-            popup_info(
-                f"Exported {success_count} of {len(objects)} objects to:\n{directory}"
+            CenLib.PopupPrint(
+                f"Exported {successCount} of {len(objects)} objects to:\n{directory}"
             )
 
-        return {"FINISHED"}
+        return CenLib.Finished()
 
     finally:
         # Restore all hide states
-        for obj, was_hidden in hide_states.items():
-            if obj.name in bpy.data.objects:
-                obj.hide_set(was_hidden)
+        for obj, wasHidden in hideStates.items():
+            if wasHidden:
+                CenLib.MakeObjectHidden(obj)
+            else:
+                CenLib.MakeObjectVisible(obj)
 
 
 # ---------- operators ----------
@@ -174,7 +131,7 @@ class CENEXPORTER_OT_export_path1(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        return export_to_path("path1", context)
+        return ExportToPath("path1", context)
 
 
 class CENEXPORTER_OT_export_path2(bpy.types.Operator):
@@ -183,7 +140,7 @@ class CENEXPORTER_OT_export_path2(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        return export_to_path("path2", context)
+        return ExportToPath("path2", context)
 
 
 class CENEXPORTER_OT_export_path3(bpy.types.Operator):
@@ -192,7 +149,7 @@ class CENEXPORTER_OT_export_path3(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        return export_to_path("path3", context)
+        return ExportToPath("path3", context)
 
 
 class CENEXPORTER_OT_export_path4(bpy.types.Operator):
@@ -201,7 +158,7 @@ class CENEXPORTER_OT_export_path4(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        return export_to_path("path4", context)
+        return ExportToPath("path4", context)
 
 
 class CENEXPORTER_OT_export_path5(bpy.types.Operator):
@@ -210,7 +167,7 @@ class CENEXPORTER_OT_export_path5(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        return export_to_path("path5", context)
+        return ExportToPath("path5", context)
 
 
 class CENEXPORTER_OT_pick_path1(bpy.types.Operator):
@@ -227,7 +184,7 @@ class CENEXPORTER_OT_pick_path1(bpy.types.Operator):
     def execute(self, context):
         if self.directory:
             context.scene.cenexporter.path1 = self.directory
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENEXPORTER_OT_pick_path2(bpy.types.Operator):
@@ -244,7 +201,7 @@ class CENEXPORTER_OT_pick_path2(bpy.types.Operator):
     def execute(self, context):
         if self.directory:
             context.scene.cenexporter.path2 = self.directory
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENEXPORTER_OT_pick_path3(bpy.types.Operator):
@@ -261,7 +218,7 @@ class CENEXPORTER_OT_pick_path3(bpy.types.Operator):
     def execute(self, context):
         if self.directory:
             context.scene.cenexporter.path3 = self.directory
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENEXPORTER_OT_pick_path4(bpy.types.Operator):
@@ -278,7 +235,7 @@ class CENEXPORTER_OT_pick_path4(bpy.types.Operator):
     def execute(self, context):
         if self.directory:
             context.scene.cenexporter.path4 = self.directory
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENEXPORTER_OT_pick_path5(bpy.types.Operator):
@@ -295,7 +252,7 @@ class CENEXPORTER_OT_pick_path5(bpy.types.Operator):
     def execute(self, context):
         if self.directory:
             context.scene.cenexporter.path5 = self.directory
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 # ---------- properties ----------
@@ -349,7 +306,7 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         if active_layer:
             col_name = active_layer.collection.name
             # Count mesh objects
-            objects = get_active_collection_objects()
+            objects = CenLib.GetObjectsInCollection(CenLib.GetActiveCollection())
             layout.label(text=f"Active: {col_name}")
             layout.label(text=f"Objects: {len(objects)}")
         else:
