@@ -10,77 +10,33 @@ bl_info = {
 
 import bpy
 import os
+import CenLib
+import time
 from bpy.props import StringProperty, PointerProperty, IntProperty, CollectionProperty
 from bpy.types import PropertyGroup, Operator, Panel
 
-NUM_SLOTS = 35
 
 
-# ---------- helpers ----------
-def popup_error(msg):
-    def draw(self, _):
-        self.layout.label(text=msg)
-    bpy.context.window_manager.popup_menu(draw, title="CenLevelExport Error!", icon="ERROR")
 
-
-def popup_info(msg):
-    def draw(self, _):
-        self.layout.label(text=msg)
-    bpy.context.window_manager.popup_menu(draw, title="CenLevelExport", icon="INFO")
-
-
-def get_objects_from_collection(collection):
-    """Recursively get all mesh objects from a collection"""
-    objects = []
-    if not collection:
-        return objects
-    
-    for obj in collection.objects:
-        if obj.type == "MESH":
-            objects.append(obj)
-    
-    for child_collection in collection.children:
-        objects.extend(get_objects_from_collection(child_collection))
-    
-    return objects
-
-
-def export_collection_to_fbx(collection_name, filepath):
+def ExportCollectionToFBX(collectionName, filepath):
     """Export a collection as a single FBX file"""
-    collection = bpy.data.collections.get(collection_name)
+    collection = CenLib.GetCollectionByName(collectionName)
     if not collection:
-        popup_error(f"Collection '{collection_name}' not found!")
+        CenLib.PopupError(f"Collection '{collectionName}' not found!")
         return False
     
-    objects = get_objects_from_collection(collection)
-    if not objects:
-        popup_error(f"No mesh objects found in collection '{collection_name}'")
+    objectsInCollection = CenLib.GetObjectsInCollection(collection)
+    if not objectsInCollection:
+        CenLib.PopupError(f"No mesh objects found in collection '{collectionName}'")
         return False
     
-    prev_selected = [obj for obj in bpy.context.selected_objects]
-    prev_active = bpy.context.view_layer.objects.active
-    
-    hide_states = {}
-    all_objects = []
-    
-    def collect_and_unhide_recursive(col):
-        for obj in col.objects:
-            if obj.type == "MESH":
-                all_objects.append(obj)
-                hide_states[obj] = obj.hide_get()
-                obj.hide_set(False)
-        for child in col.children:
-            collect_and_unhide_recursive(child)
+    prevSelected = CenLib.GetSelectedObjects()
+    prevActive = CenLib.GetActiveObject()
     
     try:
-        collect_and_unhide_recursive(collection)
-        
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in all_objects:
-            obj.select_set(True)
-        
-        if all_objects:
-            bpy.context.view_layer.objects.active = all_objects[0]
+        CenLib.ClearSelection()
+        for obj in objectsInCollection:
+            CenLib.SelectObject(obj)
         
         bpy.ops.export_scene.fbx(
             filepath=filepath,
@@ -100,43 +56,40 @@ def export_collection_to_fbx(collection_name, filepath):
         return True
         
     except Exception as e:
-        popup_error(f"Export failed for {collection_name}: {str(e)}")
+        CenLib.PopupError(f"Export failed for {collectionName}: {str(e)}")
         return False
         
     finally:
-        for obj, was_hidden in hide_states.items():
-            if obj.name in bpy.data.objects:
-                obj.hide_set(was_hidden)
-        
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in prev_selected:
-            if obj.name in bpy.data.objects:
-                obj.select_set(True)
-        if prev_active and prev_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = prev_active
+        CenLib.ClearSelection()
+        for obj in prevSelected:
+            if (CenLib.ObjectExists(obj)):
+                CenLib.SelectObject(obj)
+
+        if CenLib.ObjectExists(prevActive):
+            CenLib.SelectObject(prevActive)
 
 
-def export_single_slot(collection_name, filepath):
-    """Export a single slot"""
-    if not collection_name or not filepath:
-        popup_error("Both collection name and file path must be set!")
+def ExportSingleSlot(collectionName, filepath):
+    if not collectionName or not filepath:
+        CenLib.PopupError("Both collection name and file path must be set!")
         return False
     
-    absolute_path = bpy.path.abspath(filepath)
+    absolutePath = bpy.path.abspath(filepath)
     
-    directory = os.path.dirname(absolute_path)
+    directory = os.path.dirname(absolutePath)
     if directory and not os.path.exists(directory):
-        popup_error(f"Directory does not exist: {directory}")
+        CenLib.PopupError(f"Directory does not exist: {directory}")
         return False
     
-    return export_collection_to_fbx(collection_name, absolute_path)
+    return ExportCollectionToFBX(collectionName, absolutePath)
 
 
-def export_all_slots(context):
+def ExportAllSlots(context):
     """Export all configured slots"""
+    T_start = time.time()
     settings = context.scene.cenlevelexport
     
-    success_count = 0
+    successCount = 0
     total = 0
     
     for slot in settings.slots:
@@ -144,26 +97,26 @@ def export_all_slots(context):
             continue
         
         total += 1
-        absolute_path = bpy.path.abspath(slot.filepath)
+        absolutePath = bpy.path.abspath(slot.filepath)
         
-        directory = os.path.dirname(absolute_path)
+        directory = os.path.dirname(absolutePath)
         if directory and not os.path.exists(directory):
-            popup_error(f"Directory does not exist: {directory}")
+            CenLib.PopupError(f"Directory does not exist: {directory}")
             continue
         
-        if export_collection_to_fbx(slot.collection_name, absolute_path):
-            success_count += 1
+        if ExportCollectionToFBX(slot.collection_name, absolutePath):
+            successCount += 1
     
     if total == 0:
-        popup_error("No slots configured with both collection name and file path!")
-        return {"CANCELLED"}
+        CenLib.PopupError("No slots configured with both collection name and file path!")
+        return CenLib.Cancelled()
     
-    if success_count == total:
-        popup_info(f"Successfully exported all {success_count} collections!")
+    if successCount == total:
+        CenLib.PopupPrint(f"Successfully exported all {successCount} collections! It took {round(time.time() - T_start)} seconds.")
     else:
-        popup_info(f"Exported {success_count} of {total} collections. Check error messages for details.")
+        CenLib.PopupPrint(f"Exported {successCount} of {total} collections. Check error messages for details.")
     
-    return {"FINISHED"}
+    return CenLib.Finished()
 
 
 # ---------- properties ----------
@@ -183,8 +136,6 @@ class CENLEVELEXPORT_SlotItem(PropertyGroup):
 
 class CENLEVELEXPORT_PG_settings(PropertyGroup):
     slots: CollectionProperty(type=CENLEVELEXPORT_SlotItem)
-    active_index: IntProperty(default=0)
-    scroll_offset: IntProperty(default=0)
 
 
 # ---------- operators ----------
@@ -195,7 +146,7 @@ class CENLEVELEXPORT_OT_export_all(bpy.types.Operator):
     bl_options = {"REGISTER"}
     
     def execute(self, context):
-        return export_all_slots(context)
+        return ExportAllSlots(context)
 
 
 class CENLEVELEXPORT_OT_export_slot(bpy.types.Operator):
@@ -209,9 +160,10 @@ class CENLEVELEXPORT_OT_export_slot(bpy.types.Operator):
     def execute(self, context):
         settings = context.scene.cenlevelexport
         slot = settings.slots[self.index]
-        if export_single_slot(slot.collection_name, slot.filepath):
-            popup_info(f"Successfully exported '{slot.collection_name}'!")
-        return {"FINISHED"}
+        T_start = time.time()
+        if ExportSingleSlot(slot.collection_name, slot.filepath):
+            CenLib.PopupPrint(f"Successfully exported '{slot.collection_name}'! It took {round(time.time() - T_start)} seconds")
+        return CenLib.Finished()
 
 
 class CENLEVELEXPORT_OT_add_slot(bpy.types.Operator):
@@ -223,7 +175,7 @@ class CENLEVELEXPORT_OT_add_slot(bpy.types.Operator):
     def execute(self, context):
         settings = context.scene.cenlevelexport
         settings.slots.add()
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 class CENLEVELEXPORT_OT_remove_slot(bpy.types.Operator):
@@ -236,7 +188,7 @@ class CENLEVELEXPORT_OT_remove_slot(bpy.types.Operator):
         settings = context.scene.cenlevelexport
         if len(settings.slots) > 0:
             settings.slots.remove(len(settings.slots) - 1)
-        return {"FINISHED"}
+        return CenLib.Finished()
 
 
 # ---------- UI panel ----------
@@ -265,9 +217,9 @@ class CENLEVELEXPORT_PT_panel(bpy.types.Panel):
         col = layout.column(align=True)
         
         # Only show up to 20 slots at a time to avoid UI overload
-        visible_slots = min(len(settings.slots), 20)
+        visibleSlots = min(len(settings.slots), 20)
         
-        for i in range(visible_slots):
+        for i in range(visibleSlots):
             slot = settings.slots[i]
             
             box = col.box()
@@ -307,12 +259,6 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.Scene.cenlevelexport = PointerProperty(type=CENLEVELEXPORT_PG_settings)
-    
-    # Add default slots
-    settings = bpy.context.scene.cenlevelexport
-    if len(settings.slots) == 0:
-        for _ in range(NUM_SLOTS):
-            settings.slots.add()
 
 
 def unregister():
