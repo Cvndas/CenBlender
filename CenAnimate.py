@@ -185,7 +185,7 @@ def ExportAnimation(dir : str):
         # Selecting everything to be included in the export
         CenLib.SelectObject(armatureObj)
         for c in armatureObj.children:
-            if CenLib.IsVisible(c):
+            if CenLib.ObjectIsVisible(c):
                 CenLib.SelectObject(c)
 
         bpy.ops.export_scene.fbx(
@@ -208,7 +208,7 @@ def ExportAnimation(dir : str):
         )
 
         for c in armatureObj.children:
-            if CenLib.IsVisible(c):
+            if CenLib.ObjectIsVisible(c):
                 CenLib.DeselectObject(c)
 
         CenLib.ClearSelection()

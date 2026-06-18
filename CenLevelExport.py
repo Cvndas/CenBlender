@@ -70,6 +70,10 @@ def ExportCollectionToFBX(collectionName, filepath):
 
 
 def ExportSingleSlot(collectionName, filepath):
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
+
     if not collectionName or not filepath:
         CenLib.PopupError("Both collection name and file path must be set!")
         return False
@@ -85,7 +89,10 @@ def ExportSingleSlot(collectionName, filepath):
 
 
 def ExportAllSlots(context):
-    """Export all configured slots"""
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
+
     T_start = time.time()
     settings = context.scene.cenlevelexport
     

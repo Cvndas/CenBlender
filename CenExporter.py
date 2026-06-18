@@ -65,6 +65,10 @@ def ExportFbx(filepath, obj):
 
 
 def ExportToPath(path_property_name, context):
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
+
     settings = context.scene.cenexporter
     path = getattr(settings, path_property_name, "")
 

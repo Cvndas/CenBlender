@@ -12,6 +12,7 @@ from collections import defaultdict
 from math import floor
 
 import bpy
+import CenLib
 
 # ======================== PROPERTIES ========================
 
@@ -174,6 +175,11 @@ class CENJOINIFY_OT_JoinByChunk(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+
+        if CenLib.IsInLocalView():
+            CenLib.PopupError("Exit local view first")
+            return CenLib.Cancelled()
+
         props = context.scene.cenjoinify_props
 
         # Get selected collection

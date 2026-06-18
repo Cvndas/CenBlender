@@ -23,7 +23,7 @@ def ConvertPartCollectionToLodCollection():
         CenLib.PopupError("Active collection did not end with -Parts")
         return CenLib.Cancelled()
 
-    CenLib.MakeVisible(partCollection)
+    CenLib.MakeCollectionVisible(partCollection)
     CenLib.ClearSelection() 
 
     lodCollectionName = partCollection.name.removesuffix("-Parts") + "-CenLods"
@@ -55,7 +55,7 @@ def ConvertPartCollectionToLodCollection():
     lod0 = joined
     lod1 = CreateLod1Object(lod0)
 
-    CenLib.HideFromViewport(lod0)
+    CenLib.MakeObjectHidden(lod0)
 
     CenLib.ExcludeCollection(partCollection)
 
@@ -70,12 +70,15 @@ def ConvertPartCollectionToLodCollection():
 
 
 def UpdateLods():
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
     lodCollection = CenLib.GetActiveCollection()
     if not lodCollection or not lodCollection.name.endswith("-CenLods"):
         CenLib.PopupError("Active collection didn't end with -CenLods")
         return CenLib.Cancelled()
 
-    CenLib.MakeVisible(lodCollection)
+    CenLib.MakeCollectionVisible(lodCollection)
     lod1Object = None
     lod0Object = None
     oldRatio = 0.5
@@ -84,8 +87,6 @@ def UpdateLods():
             lod1Object = obj
         elif obj.name.endswith("-V_LOD0"):
             lod0Object = obj
-        else:
-            CenLib.DeleteObject(obj)
 
     if not lod0Object:
         CenLib.PopupError("Failed to find the lod0 object in " + lodCollection.name)
@@ -173,6 +174,7 @@ def NameLod0sInCollection():
 
 def CreateLod1Object(lod0: bpy.types.Object)-> bpy.types.Object:
     lod1 = CenLib.DuplicateObject(lod0)
+    CenLib.ConvertToMesh(lod1)
     decimate = CenLib.AddModifier(lod1, "Lod1Decimate", "DECIMATE")
     CenLib.SetModifierProperty(decimate, "decimate_type", "COLLAPSE")
     CenLib.SetModifierProperty(decimate, "ratio", 0.5)

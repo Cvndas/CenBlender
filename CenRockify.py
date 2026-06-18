@@ -28,6 +28,10 @@ def SetupModifier(object):
 
 
 def RockPainterLodder():
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
+
     activeCollection = bpy.context.collection
     if activeCollection is None:
         CenLib.PopupError("No active collection")
@@ -72,6 +76,10 @@ def RockPainterLodder():
 
 
 def SpreadRockPainter(replace_existing=True):
+    if CenLib.IsInLocalView():
+        CenLib.PopupError("Exit local view first")
+        return CenLib.Cancelled()
+
     activeCollection = CenLib.GetActiveCollection()
     selectedObjects = CenLib.GetSelectedObjects()
 
