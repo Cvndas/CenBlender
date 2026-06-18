@@ -101,31 +101,6 @@ def unregister() -> None:
 import os
 
 
-def IsInDontExportCollection(obj):
-    """Check if object's collection lineage contains 'DontExportAnim'"""
-    def check_collection(collection):
-        if "DontExportAnim" in collection.name:
-            return True
-        # Check if this collection is a child of a DontExportAnim collection
-        for parent in bpy.data.collections:
-            if obj.name in parent.objects and "DontExportAnim" in parent.name:
-                return True
-        return False
-
-    for coll in obj.users_collection:
-        if check_collection(coll):
-            return True
-    return False
-
-
-def DisableDontExportAnimCollections():
-    dontExportCollections = CenLib.GetCollectionsByPattern("DontExportAnim")
-    temporarilyExcluded = []
-    for dontExport in dontExportCollections:
-        if CenLib.CollectionWasExcluded(dontExport) == False:
-            CenLib.ExcludeCollection(dontExport)
-            temporarilyExcluded.append(dontExport)
-    return temporarilyExcluded
 
 
 
@@ -145,9 +120,9 @@ def ExportAnimation(dir : str):
         cenAnimateCollection = cenAnimateCollections[0]
     # If multiple matches, check current selected collection
     elif len(cenAnimateCollections) > 1:
-        current_collection = bpy.context.view_layer.active_layer_collection.collection
-        if "CenAnimate" in current_collection.name:
-            cenAnimateCollection = current_collection
+        activeCollection = CenLib.GetActiveCollection()
+        if "CenAnimate" in activeCollection.name:
+            cenAnimateCollection = activeCollection
         else:
             CenLib.PopupError("Multiple collections contain \"AnimExport\" in their name, and the currently selected collection does not contain \"CenAnimate\"")
             return CenLib.Cancelled()
@@ -157,9 +132,13 @@ def ExportAnimation(dir : str):
         return CenLib.Cancelled()
 
 
-    temporarilyExcluded = DisableDontExportAnimCollections()
+    temporarilyExcluded = []
+    for dontExport in CenLib.GetCollectionsByPattern("DontExportAnim"):
+        if CenLib.CollectionWasExcluded(dontExport) == False:
+            CenLib.ExcludeCollection(dontExport)
+            temporarilyExcluded.append(dontExport)
 
-    if getattr(bpy.context.space_data, "local_view", None) is not None:
+    if CenLib.IsInLocalView():
         CenLib.PopupError("You're in local view. Please exit first")
         return CenLib.Cancelled()
 
@@ -185,26 +164,23 @@ def ExportAnimation(dir : str):
         return CenLib.Cancelled()
 
 
-    absolute_dir = bpy.path.abspath(dir)
-    if not absolute_dir:
+    absoluteDir = bpy.path.abspath(dir)
+    if not absoluteDir:
         CenLib.PopupError("Forgot to set output path")
         return CenLib.Cancelled()
 
     try:
         view_layer_objs = bpy.context.view_layer.objects
-        file_name = cenAnimateCollection.name
-        file_path = os.path.join(absolute_dir, f"{file_name}.fbx")
+        fileName = cenAnimateCollection.name
+        filePath = os.path.join(absoluteDir, f"{fileName}.fbx")
 
-        if bpy.context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-
+        CenLib.EnterObjectMode()
         CenLib.ClearSelection()
 
         # Being in NLA is known to cause corruption or missing animations
-        if hasattr(bpy.context.scene, "is_nla_tweakmode"):
-            if bpy.context.scene.is_nla_tweakmode:
-                CenLib.PopupError("Please exit the action you're currently editing.")
-                return CenLib.Cancelled()
+        if CenLib.IsEditingNLA():
+            CenLib.PopupError("Please exit the action you're currently editing.")
+            return CenLib.Cancelled()
 
         # Selecting everything to be included in the export
         CenLib.SelectObject(armatureObj)
@@ -213,7 +189,7 @@ def ExportAnimation(dir : str):
                 CenLib.SelectObject(c)
 
         bpy.ops.export_scene.fbx(
-            filepath=file_path,
+            filepath=filePath,
             use_selection=True,
             bake_anim_simplify_factor=0.0,
             use_visible=True,
@@ -264,13 +240,13 @@ def ExportMeshes(dir: str):
     targetCollection = possibleCollections[0]
     CenLib.SetCollectionToActive(targetCollection)
 
-    absolute_dir = bpy.path.abspath(dir)
-    if not absolute_dir:
+    absoluteDir = bpy.path.abspath(dir)
+    if not absoluteDir:
         CenLib.PopupError("Forgot to set output path")
         return CenLib.Cancelled()
 
     fileName = targetCollection.name
-    fullPath = os.path.join(absolute_dir, f"{fileName}.fbx")
+    fullPath = os.path.join(absoluteDir, f"{fileName}.fbx")
 
 
     bpy.ops.export_scene.fbx(
