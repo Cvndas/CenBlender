@@ -21,6 +21,22 @@ def Cancelled():
 def Finished():
     return {"FINISHED"}
 
+def GetAllObjects()->List[bpy.types.Object]:
+    return list(bpy.data.objects)
+
+
+def GetModifierOwner(mod: bpy.types.Modifier)->bpy.types.Object:
+    return mod.id_data
+    
+def GetVertexGroupNames(obj: bpy.types.Object):
+    allNames = []
+    for vertexGroup in obj.vertex_groups:
+        allNames.append(vertexGroup.name)
+    return allNames
+
+def GetVertexGroup(obj: bpy.types.Object, groupName: str):
+    return obj.vertex_groups.get(groupName)
+
 def MoveToCollection(obj: bpy.types.Object, target_collection: bpy.types.Collection) -> bool:
     if not obj or not target_collection:
         PopupError("Object or collection not provided")
@@ -84,11 +100,34 @@ def JoinObjects(objects: List[bpy.types.Object]) -> Optional[bpy.types.Object]:
 def GetCurrentMode()->str:
     return bpy.context.mode
 
+def IsEditingNLA()->bool:
+    if hasattr(bpy.context.scene, "is_nla_tweakmode"):
+        return bpy.context.scene.is_nla_tweakmode
+    return False
+
+def IsInLocalView()->bool:
+    return getattr(bpy.context.space_data, "local_view", None) is not None
+
+def EnterObjectMode()-> None:
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+
 def EnterMode(modeToEnter: str)->None:
     bpy.ops.object.mode_set(mode=modeToEnter)
 
 def ConvertToMesh(obj: bpy.types.Object) -> None:
+    activeObjectBefore = GetActiveObject()
+    selectionBefore = GetSelectedObjects()
+
+    SelectExclusive(obj)
     bpy.ops.object.convert(target="MESH")
+    ClearSelection()
+
+    for prevSelection in selectionBefore:
+        SelectObject(prevSelection)
+    if ObjectExists(activeObjectBefore):
+        SelectObject(activeObjectBefore)
+
 
 
 # Serves as a bpy reference, or can be called
@@ -278,8 +317,10 @@ def GetLayerCollection(target_collection: bpy.types.Collection) -> Optional[bpy.
     
     return find_layer_collection(view_layer.layer_collection, target_collection)
 
+def ObjectIsHidden(obj: bpy.types.Object) -> bool:
+    return not ObjectIsVisible(obj)
 
-def IsVisible(obj: bpy.types.Object) -> bool:
+def ObjectIsVisible(obj: bpy.types.Object) -> bool:
     if not obj:
         return False
     
@@ -306,7 +347,15 @@ def IsVisible(obj: bpy.types.Object) -> bool:
     
     return True
 
-def MakeVisible(targetCollection: bpy.types.Collection) -> None:
+
+
+def MakeObjectVisible(obj: bpy.types.Object) -> None:
+    obj.hide_set(False)
+
+def MakeObjectHidden(obj: bpy.types.Object) -> None:
+    obj.hide_set(True)
+
+def MakeCollectionVisible(targetCollection: bpy.types.Collection) -> None:
     """Make a collection visible in the viewport (recursively)"""
     def set_visible_recursive(layer_collection):
         layer_collection.hide_viewport = False
@@ -351,12 +400,30 @@ def GetCollectionByName(collectionName: str) -> Optional[bpy.types.Collection]:
     return bpy.data.collections.get(collectionName)
 
 
+
+def IsInCollection_Direct(obj: bpy.types.Object, collection: bpy.types.Collection):
+    if not obj or not collection:
+        return False
+    return obj in collection.objects
+
+
+
+def IsInCollection(obj: bpy.types.Object, collection: bpy.types.Collection):
+    if not obj or not collection:
+        return False
+    return obj in GetObjectsInCollection(collection)
+
+
+
+
 def GetCollectionsByPattern(pattern: str) -> List[bpy.types.Collection]:
     result = []
     for collection in bpy.data.collections:
         if pattern in collection.name:
             result.append(collection)
     return result
+
+
 
 def ExcludeCollection(targetCollection: bpy.types.Collection) -> bool:
     if not targetCollection:
@@ -381,6 +448,9 @@ def ExcludeCollection(targetCollection: bpy.types.Collection) -> bool:
         return True
     return False
 
+
+
+
 def CollectionWasExcluded(targetCollection: bpy.types.Collection) -> bool:
     if not targetCollection:
         return False
@@ -391,6 +461,8 @@ def CollectionWasExcluded(targetCollection: bpy.types.Collection) -> bool:
     if layerCollection:
         return layerCollection.exclude
     return False
+
+
 
 
 def IncludeCollection(targetCollection: bpy.types.Collection) -> bool:
@@ -405,12 +477,16 @@ def IncludeCollection(targetCollection: bpy.types.Collection) -> bool:
         return True
     return False
 
+def ObjectExists(obj: Optional[bpy.types.Object]) -> bool:
+    return obj is not None and obj.name in bpy.data.objects
+        
 
 def GetActiveObject() -> bpy.types.Object:
     return bpy.context.view_layer.objects.active
 
 def GetSelectedObjects() -> List[bpy.types.Object]:
     return bpy.context.selected_objects
+
 
 def GetModifierValue(mod: bpy.types.Modifier, propertyName: str) -> any:
     return getattr(mod, propertyName)
@@ -422,6 +498,14 @@ def SetModifierProperty(mod: bpy.types.Modifier, propertyName: str, value: any) 
 def AddModifier(obj: bpy.types.Object, userSpecifiedName: str, internalType: str) -> bpy.types.Modifier:
     return obj.modifiers.new(name=userSpecifiedName, type=internalType)
 
+def GetModifiers(obj: bpy.types.Object):
+    return obj.modifiers
+
+def IsGeonodeModifier(mod: bpy.types.Modifier)-> bool:
+    return mod.type == "NODES" and mod.node_group
+
+def GetGeonodeTypeName(geonodeMod: bpy.types.Modifier)->str:
+    return geonodeMod.node_group.name
 
 def GetModifier(obj: bpy.types.Object, userSpecifiedName: str, modifierIndex: int = 0) -> Optional[bpy.types.Modifier]:
     matches = [m for m in obj.modifiers if m.name == userSpecifiedName]
@@ -429,13 +513,19 @@ def GetModifier(obj: bpy.types.Object, userSpecifiedName: str, modifierIndex: in
         return matches[modifierIndex]
     return None
 
+def ModifierIsActive(mod: bpy.types.Modifier)->bool:
+    return mod.show_viewport
+
+def MakeModifierActive(mod: bpy.types.Modifier)-> None:
+    mod.show_viewport = True
+
+def MakeModifierInactive(mod: bpy.types.Modifier)-> None:
+    mod.show_viewport = False
 
 def PinModifierToLast(modifier: bpy.types.Modifier) -> None:
     modifier.use_pin_to_last = True
 
 
-def HideFromViewport(obj: bpy.types.Object) -> None:
-    obj.hide_set(True)
 
 
 def register() -> None:
