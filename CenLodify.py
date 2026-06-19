@@ -16,7 +16,40 @@ import CenLib
 from bpy.props import BoolProperty, PointerProperty, StringProperty
 from bpy.types import PropertyGroup
 
-# ---------- NEW empty functions ----------
+def BringIntoParts():
+    selected = CenLib.GetSelectedObjects()
+    if not selected:
+        CenLib.PopupError("No objects selected")
+        return CenLib.Cancelled()
+    
+    active = CenLib.GetActiveObject()
+    if not active:
+        CenLib.PopupError("No active object")
+        return CenLib.Cancelled()
+    
+    base_name = active.name
+    suffixes_to_remove = ["-V", "-V_LOD0", "-V_LOD1", "_V", "_V_LOD0", "_V_LOD1"]
+    for suffix in suffixes_to_remove:
+        if base_name.endswith(suffix):
+            base_name = base_name.removesuffix(suffix)
+            break
+    
+    parts_collection_name = base_name + "-Parts"
+    
+    existing = CenLib.GetCollectionByName(parts_collection_name)
+    if existing:
+        CenLib.PopupError(f"Collection {parts_collection_name} already exists")
+        return CenLib.Cancelled()
+    
+    parts_collection = CenLib.CreateCollection(parts_collection_name)
+    
+    for obj in selected:
+        CenLib.MoveToCollection(obj, parts_collection)
+    
+    CenLib.SetCollectionToActive(parts_collection)
+    CenLib.PopupPrint(f"Moved {len(selected)} objects into {parts_collection_name}")
+    return CenLib.Finished()
+
 def ConvertPartCollectionToLodCollection():
     partCollection = CenLib.GetActiveCollection()
     if not partCollection or partCollection.name.endswith("-Parts") == False:
@@ -61,14 +94,6 @@ def ConvertPartCollectionToLodCollection():
 
     return CenLib.Finished()
 
-
-
-
-
-    
-
-
-
 def UpdateLods():
     if CenLib.IsInLocalView():
         CenLib.PopupError("Exit local view first")
@@ -104,16 +129,6 @@ def UpdateLods():
 
     return CenLib.Finished()
 
-
-    
-
-
-            
-    
-
-
-
-
 def MakeLod1Collection():
     start = time.time()
     originalCollection = CenLib.GetActiveCollection()
@@ -132,6 +147,10 @@ def MakeLod1Collection():
             return CenLib.Cancelled()
 
     dupeName = originalCollection.name.replace("_LOD0", "_LOD1")
+    previousLod1Collection = CenLib.GetCollectionByName(dupeName)
+    if previousLod1Collection is not None:
+        CenLib.DeleteCollection(previousLod1Collection)
+
     dupedCollection = CenLib.DuplicateCollection(originalCollection, dupeName)
 
     duplicatedObjects = CenLib.GetObjectsInCollection(dupedCollection)
@@ -141,12 +160,11 @@ def MakeLod1Collection():
         dupe.name = dupe.name.split("_LOD0")[0] + "_LOD1"
         CenLib.SelectObject(
             dupe
-        )  # Selecting, so that after running it's easy to set the decimate value
+        )
 
     end = time.time()
     CenLib.PopupPrint(f"Completed Make Lod1 Collection! It took {end - start} seconds!")
     return CenLib.Finished()
-
 
 def NameLod0sInCollection():
     targetCollection = CenLib.GetActiveCollection()
@@ -166,12 +184,6 @@ def NameLod0sInCollection():
     CenLib.PopupPrint(f"Completed Name Lod1s In Collection!")
     return CenLib.Finished()
 
-
-
-
-# ---------- helpers ----------
-
-
 def CreateLod1Object(lod0: bpy.types.Object)-> bpy.types.Object:
     lod1 = CenLib.DuplicateObject(lod0)
     CenLib.ConvertToMesh(lod1)
@@ -181,11 +193,15 @@ def CreateLod1Object(lod0: bpy.types.Object)-> bpy.types.Object:
     lod1.name = lod0.name.removesuffix("_LOD0") + "_LOD1"
     return lod1
 
+class CENLODIFY_OT_BringIntoParts(bpy.types.Operator):
+    bl_idname = "cenlodify.bring_into_parts"
+    bl_label = "Bring into Parts"
+    bl_options = {"REGISTER", "UNDO"}
 
+    def execute(self, context):
+        BringIntoParts()
+        return CenLib.Finished()
 
-
-
-# ---------- UI ----------
 class CENLODIFY_OT_ConvertParts(bpy.types.Operator):
     bl_idname = "cenlodify.convert_parts"
     bl_label = "Convert -Parts to -CenLods"
@@ -194,7 +210,6 @@ class CENLODIFY_OT_ConvertParts(bpy.types.Operator):
     def execute(self, context):
         ConvertPartCollectionToLodCollection()
         return CenLib.Finished()
-
 
 class CENLODIFY_OT_UpdateLods(bpy.types.Operator):
     bl_idname = "cenlodify.update_lods"
@@ -205,7 +220,6 @@ class CENLODIFY_OT_UpdateLods(bpy.types.Operator):
         UpdateLods()
         return CenLib.Finished()
 
-
 class CENLODIFY_OT_MakeLod1(bpy.types.Operator):
     bl_idname = "cenlodify.make_lod1"
     bl_label = "Make LOD1 Collection"
@@ -215,7 +229,6 @@ class CENLODIFY_OT_MakeLod1(bpy.types.Operator):
         MakeLod1Collection()
         return CenLib.Finished()
 
-
 class CENLODIFY_OT_NameLod0s(bpy.types.Operator):
     bl_idname = "cenlodify.name_lod0s"
     bl_label = "Name LOD0s in collection"
@@ -224,7 +237,6 @@ class CENLODIFY_OT_NameLod0s(bpy.types.Operator):
     def execute(self, context):
         NameLod0sInCollection()
         return CenLib.Finished()
-
 
 class CENLODIFY_PT_panel(bpy.types.Panel):
     bl_label = "CenLodify"
@@ -243,16 +255,15 @@ class CENLODIFY_PT_panel(bpy.types.Panel):
         layout.label(text=f"Active: {col.name if col else '<none>'}")
         layout.separator()
 
-        layout.operator("cenlodify.convert_parts", icon="IMPORT")
+        layout.operator("cenlodify.bring_into_parts", icon="IMPORT")
+        layout.operator("cenlodify.convert_parts", icon="MOD_BOOLEAN")
         layout.operator("cenlodify.update_lods", icon="FILE_REFRESH")
         layout.separator()
         layout.operator("cenlodify.name_lod0s", icon="OUTLINER_OB_FONT")
         layout.operator("cenlodify.make_lod1", icon="ADD")
 
-
-# ---------- register ----------
-
 classes = (
+    CENLODIFY_OT_BringIntoParts,
     CENLODIFY_OT_ConvertParts,
     CENLODIFY_OT_UpdateLods,
     CENLODIFY_OT_MakeLod1,
@@ -260,16 +271,13 @@ classes = (
     CENLODIFY_PT_panel,
 )
 
-
 def register():
     for c in classes:
         bpy.utils.register_class(c)
 
-
 def unregister():
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
-
 
 if __name__ == "__main__":
     register()

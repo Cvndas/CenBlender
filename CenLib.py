@@ -529,14 +529,31 @@ def UnpinAllModifiers(obj: bpy.types.Object) -> None:
     for mod in obj.modifiers:
         mod.use_pin_to_last = False
 
-# def MoveModifierToLast(obj: bpy.types.Object, modifier: bpy.types.Modifier) -> None:
-#     current_index = obj.modifiers.find(modifier.name)
-#     if current_index == -1:
-#         return
+def DeleteCollection(col: bpy.types.Collection) -> None:
+    """Delete a collection and all its contents (objects and child collections)"""
+    if not col:
+        PopupError("No collection provided")
+        return
     
-#     # Move to last position
-#     obj.modifiers.move(current_index, len(obj.modifiers) - 1)
-
+    # Get all objects in the collection (including nested)
+    objects_to_delete = GetObjectsInCollection(col)
+    
+    # Delete all objects
+    for obj in objects_to_delete:
+        if ObjectExists(obj):
+            DeleteObject(obj)
+    
+    # Remove the collection from all parents
+    for parent in bpy.data.collections:
+        if col.name in parent.children:
+            parent.children.unlink(col)
+    
+    # Remove from scene root if present
+    if col.name in bpy.context.scene.collection.children:
+        bpy.context.scene.collection.children.unlink(col)
+    
+    # Finally, remove the collection itself
+    bpy.data.collections.remove(col)
 
 def register() -> None:
     print("CenLib loaded")
