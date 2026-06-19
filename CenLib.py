@@ -513,6 +513,84 @@ def GetModifier(obj: bpy.types.Object, userSpecifiedName: str, modifierIndex: in
         return matches[modifierIndex]
     return None
 
+def GetParentOfCollection(collection: bpy.types.Collection) -> Optional[bpy.types.Collection]:
+    """
+    Get the immediate parent collection of a given collection.
+    
+    Args:
+        collection: The collection to find the parent of
+        
+    Returns:
+        Optional[bpy.types.Collection]: The parent collection if found, None otherwise
+    """
+    if not collection:
+        PopupError("No collection provided")
+        return None
+    
+    # Check if collection is directly in the scene root
+    if collection.name in bpy.context.scene.collection.children:
+        return bpy.context.scene.collection
+    
+    # Search through all collections to find which one has this as a child
+    for parent in bpy.data.collections:
+        if collection.name in parent.children:
+            return parent
+    
+    return None
+
+
+def MakeCollectionChildOf(target: bpy.types.Collection, collectionToBecomeChildOf: bpy.types.Collection) -> bool:
+    """
+    Make a collection a child of another collection.
+    
+    Args:
+        target: The collection to move as a child
+        collectionToBecomeChildOf: The parent collection
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not target or not collectionToBecomeChildOf:
+        PopupError("Target collection or parent collection not provided")
+        return False
+    
+    # Check if target is already a child of the parent
+    if target.name in collectionToBecomeChildOf.children:
+        return True
+    
+    # Check if target is the same as parent (prevent self-parenting)
+    if target == collectionToBecomeChildOf:
+        PopupError("Cannot make a collection a child of itself")
+        return False
+    
+    # Check if parent is a descendant of target (prevent circular parenting)
+    def is_descendant(parent: bpy.types.Collection, potential_child: bpy.types.Collection) -> bool:
+        for child in parent.children:
+            if child == potential_child:
+                return True
+            if is_descendant(child, potential_child):
+                return True
+        return False
+    
+    if is_descendant(target, collectionToBecomeChildOf):
+        PopupError("Cannot create circular collection hierarchy")
+        return False
+    
+    # Remove target from its current parent(s)
+    # Remove from scene root if present
+    if target.name in bpy.context.scene.collection.children:
+        bpy.context.scene.collection.children.unlink(target)
+    
+    # Remove from any other parent collections
+    for parent in bpy.data.collections:
+        if target.name in parent.children:
+            parent.children.unlink(target)
+    
+    # Link target as child of the new parent
+    collectionToBecomeChildOf.children.link(target)
+    
+    return True
+
 def ModifierIsActive(mod: bpy.types.Modifier)->bool:
     return mod.show_viewport
 

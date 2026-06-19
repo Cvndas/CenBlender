@@ -152,6 +152,8 @@ def MakeLod1Collection():
         CenLib.DeleteCollection(previousLod1Collection)
 
     dupedCollection = CenLib.DuplicateCollection(originalCollection, dupeName)
+    toParentTo = CenLib.GetParentOfCollection(originalCollection)
+    CenLib.MakeCollectionChildOf(dupedCollection, toParentTo)
 
     duplicatedObjects = CenLib.GetObjectsInCollection(dupedCollection)
     for dupe in duplicatedObjects:
