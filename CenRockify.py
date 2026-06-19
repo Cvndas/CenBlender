@@ -37,8 +37,6 @@ def RockPainterLodder():
         CenLib.PopupError("No active collection")
         return
 
-    # Create collection name based on current collection
-
     objectsWithRockpainter = []
     for obj in activeCollection.objects:
         rockPaintersOnObjectFound = 0
@@ -53,7 +51,7 @@ def RockPainterLodder():
                         modifier.show_render = False
                         rockPaintersOnObjectFound += 1
 
-    rockCollectionName = f"{activeCollection.name}_RockLods"
+    rockCollectionName = f"{activeCollection.name}-Template"
     paintedRocksCollection = CenLib.GetOrCreateCollection(rockCollectionName)
     oldRocks = CenLib.GetObjectsInCollection(paintedRocksCollection)
     for oldRock in oldRocks:
@@ -89,14 +87,12 @@ def SpreadRockPainter(replace_existing=True):
     activeCollection = CenLib.GetActiveCollection()
     selectedObjects = CenLib.GetSelectedObjects()
 
-    # Check if an object is selected
     if selectedObjects is None or len(selectedObjects) == 0:
         print("Error: No object selected")
         return
 
     selectedObj = selectedObjects[0]
 
-    # Check if selected object has RockPainter_V2
     hasRockPainter = False
     sourceModifier = None
     for modifier in selectedObj.modifiers:
@@ -110,7 +106,6 @@ def SpreadRockPainter(replace_existing=True):
         print("Error: Selected object does not have RockPainter_V2 modifier")
         return
 
-    # Get the socket values from source
     sockets_to_copy = [2, 3, 4, 5, 6, 7, 8, 9, 10]
     socket_values = {}
     for socket in sockets_to_copy:
@@ -118,23 +113,19 @@ def SpreadRockPainter(replace_existing=True):
         if socket_key in sourceModifier:
             socket_values[socket_key] = sourceModifier[socket_key]
 
-    # Get the node group
     sourceNodeGroup = sourceModifier.node_group
 
-    # Spread to all other objects in the same collection
     objectsModified = 0
     for obj in CenLib.GetObjectsInCollection(activeCollection):
         if obj == selectedObj:
-            continue  # Skip the source object
+            continue
 
-        # If replacing, remove existing RockPainter_V2 if present
         if replace_existing:
             for modifier in list(obj.modifiers):
                 if modifier.type == "NODES" and modifier.node_group:
                     if modifier.node_group.name == "RockPainter_V2":
                         obj.modifiers.remove(modifier)
         else:
-            # Check if modifier already exists, skip if it does
             already_has = False
             for modifier in obj.modifiers:
                 if modifier.type == "NODES" and modifier.node_group:
@@ -144,11 +135,9 @@ def SpreadRockPainter(replace_existing=True):
             if already_has:
                 continue
 
-        # Add new RockPainter_V2 modifier
         newModifier = obj.modifiers.new(name="RockPainter_V2", type="NODES")
         newModifier.node_group = sourceNodeGroup
 
-        # Copy all socket values
         for socket_key, value in socket_values.items():
             newModifier[socket_key] = value
 
@@ -156,12 +145,9 @@ def SpreadRockPainter(replace_existing=True):
         newModifier.show_render = True
         objectsModified += 1
 
-        # Add the vertex group if it didn't yet exist
         vertexGroups = CenLib.GetVertexGroupNames(obj) 
         if "BigRocks" not in vertexGroups:
             obj.vertex_groups.new(name="BigRocks")
-
-
 
     if objectsModified == 0 and replace_existing:
         print(
@@ -215,12 +201,25 @@ class ROCKPAINTER_LODDER_PT_Panel(bpy.types.Panel):
     bl_category = "Centradigon"
 
     def draw(self, context):
-        self.layout.operator("object.rockpainter_lodder", text="Run LOD Setup")
-        self.layout.separator()
-        self.layout.operator(
+        layout = self.layout
+        
+        active_layer = context.view_layer.active_layer_collection
+        if active_layer:
+            col_name = active_layer.collection.name
+            objects = CenLib.GetObjectsInCollection(CenLib.GetActiveCollection())
+            layout.label(text=f"Active: {col_name}")
+            layout.label(text=f"Objects: {len(objects)}")
+        else:
+            layout.label(text="Active: <none>")
+        
+        layout.separator()
+        
+        layout.operator("object.rockpainter_lodder", text="Run LOD Setup")
+        layout.separator()
+        layout.operator(
             "object.rockpainter_spread", text="Spread RockPainter (Replace Existing)"
         )
-        self.layout.operator(
+        layout.operator(
             "object.rockpainter_merge", text="Spread RockPainter (Keep Existing)"
         )
 
