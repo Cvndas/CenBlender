@@ -69,8 +69,14 @@ def RockPainterLodder():
         CenLib.MoveToCollection(dupeLod1, paintedRocksCollection)
         SetupModifier(dupeLod0)
         SetupModifier(dupeLod1)
+
+        for mod in obj.modifiers:
+            if mod.use_pin_to_last:
+                CenLib.PopupError(f"Error: A modifier on {obj.name} was pinned. This will cause problems with CenRockify")
+
         decimator = dupeLod1.modifiers.new(name="RockLod1Decimate", type="DECIMATE")
         decimator.ratio = 0.1
+        CenLib.PinModifierToLast(decimator)
 
         rockIndex += 1
 
@@ -149,6 +155,13 @@ def SpreadRockPainter(replace_existing=True):
         newModifier.show_viewport = True
         newModifier.show_render = True
         objectsModified += 1
+
+        # Add the vertex group if it didn't yet exist
+        vertexGroups = CenLib.GetVertexGroupNames(obj) 
+        if "BigRocks" not in vertexGroups:
+            obj.vertex_groups.new(name="BigRocks")
+
+
 
     if objectsModified == 0 and replace_existing:
         print(

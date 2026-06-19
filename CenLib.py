@@ -525,7 +525,17 @@ def MakeModifierInactive(mod: bpy.types.Modifier)-> None:
 def PinModifierToLast(modifier: bpy.types.Modifier) -> None:
     modifier.use_pin_to_last = True
 
+def UnpinAllModifiers(obj: bpy.types.Object) -> None:
+    for mod in obj.modifiers:
+        mod.use_pin_to_last = False
 
+# def MoveModifierToLast(obj: bpy.types.Object, modifier: bpy.types.Modifier) -> None:
+#     current_index = obj.modifiers.find(modifier.name)
+#     if current_index == -1:
+#         return
+    
+#     # Move to last position
+#     obj.modifiers.move(current_index, len(obj.modifiers) - 1)
 
 
 def register() -> None:
