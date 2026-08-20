@@ -68,9 +68,9 @@ def RockPainterLodder():
         SetupModifier(dupeLod0)
         SetupModifier(dupeLod1)
 
-        for mod in obj.modifiers:
-            if mod.use_pin_to_last:
-                CenLib.PopupError(f"Error: A modifier on {obj.name} was pinned. This will cause problems with CenRockify")
+        # for mod in obj.modifiers:
+        #     if mod.use_pin_to_last:
+        #         CenLib.PopupError(f"Error: A modifier on {obj.name} was pinned. This will cause problems with CenRockify")
 
         decimator = dupeLod1.modifiers.new(name="RockLod1Decimate", type="DECIMATE")
         decimator.ratio = 0.1
@@ -158,6 +158,20 @@ def SpreadRockPainter(replace_existing=True):
     )
 
 
+def ResetRocksVertexGroups():
+    selected = CenLib.GetSelectedObjects()
+
+    count = 0
+    for obj in selected:
+        CenLib.RemoveVertexGroup(obj, "BigRocks")
+        CenLib.AddVertexGroup(obj, "BigRocks")
+        count += 1
+
+    CenLib.PopupPrint(f"Reset the BigRocks vertex group on {count} objects")
+    return CenLib.Finished()
+
+
+
 # ----------------- Operators & Panel -----------------
 
 
@@ -193,6 +207,16 @@ class ROCKPAINTER_LODDER_OT_Merge(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ROCKPAINTER_LODDER_OT_ResetVertexGroups(bpy.types.Operator):
+    bl_idname = "object.rockpainter_reset_vertex_groups"
+    bl_label = "Reset Rocks Vertex Groups"
+    bl_description = "Reset vertex groups for rocks in the active collection"
+
+    def execute(self, context):
+        ResetRocksVertexGroups()
+        return {"FINISHED"}
+
+
 class ROCKPAINTER_LODDER_PT_Panel(bpy.types.Panel):
     bl_label = "CenRockify"
     bl_idname = "VIEW3D_PT_rockpainter_lodder"
@@ -222,6 +246,8 @@ class ROCKPAINTER_LODDER_PT_Panel(bpy.types.Panel):
         layout.operator(
             "object.rockpainter_merge", text="Spread RockPainter (Keep Existing)"
         )
+        layout.separator()
+        layout.operator("object.rockpainter_reset_vertex_groups", text="Reset Rocks Vertex Groups")
 
 
 # ----------------- Registration -----------------
@@ -230,6 +256,7 @@ classes = [
     ROCKPAINTER_LODDER_OT_Run,
     ROCKPAINTER_LODDER_OT_Spread,
     ROCKPAINTER_LODDER_OT_Merge,
+    ROCKPAINTER_LODDER_OT_ResetVertexGroups,
     ROCKPAINTER_LODDER_PT_Panel,
 ]
 

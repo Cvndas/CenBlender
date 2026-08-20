@@ -111,6 +111,11 @@ def ExportAnimation(dir : str):
         CenLib.PopupError("Forgot to set output!")
         return CenLib.Cancelled()
 
+
+    originalSelection = CenLib.GetSelectedObjects()
+    originalActive = CenLib.GetActiveObject()
+    originalActiveCollection = CenLib.GetActiveCollection()
+
     cenAnimateCollection = None
 
     # First, find all collections with "CenAnimate" in the name
@@ -182,11 +187,22 @@ def ExportAnimation(dir : str):
             CenLib.PopupError("Please exit the action you're currently editing.")
             return CenLib.Cancelled()
 
+        stickFigs = CenLib.GetObjectsByPattern_CaseInsensitive("stickfig")
+        stickFigsToHide = []
+        for stickFig in stickFigs:
+            if CenLib.ObjectIsVisible(stickFig):
+                continue
+            CenLib.MakeObjectVisible(stickFig)
+            stickFigsToHide.append(stickFig)
+
         # Selecting everything to be included in the export
         CenLib.SelectObject(armatureObj)
         for c in armatureObj.children:
             if CenLib.ObjectIsVisible(c):
                 CenLib.SelectObject(c)
+
+
+
 
         bpy.ops.export_scene.fbx(
             filepath=filePath,
@@ -210,6 +226,8 @@ def ExportAnimation(dir : str):
         for c in armatureObj.children:
             if CenLib.ObjectIsVisible(c):
                 CenLib.DeselectObject(c)
+        for stickFig in stickFigsToHide:
+            CenLib.MakeObjectHidden(stickFig)
 
         CenLib.ClearSelection()
 
@@ -222,6 +240,11 @@ def ExportAnimation(dir : str):
         for c in temporarilyExcluded:
             CenLib.IncludeCollection(c)
 
+    CenLib.ClearSelection()
+    for obj in originalSelection:
+        CenLib.SelectObject(obj)
+    CenLib.SelectObject(originalActive)
+    CenLib.SetCollectionToActive(originalActiveCollection)
 
     end = time.time()
     CenLib.PopupPrint(f"Completed Export Animation! It took {(end - start):.1f} seconds! (We excluded {", ".join([col.name for col in temporarilyExcluded])})")
@@ -231,6 +254,10 @@ def ExportAnimation(dir : str):
 def ExportMeshes(dir: str):
     start = time.time()
 
+    originalSelection = CenLib.GetSelectedObjects()
+    originalActive = CenLib.GetActiveObject()
+    originalActiveCollection = CenLib.GetActiveCollection()
+
     CenLib.ClearSelection()
     possibleCollections = CenLib.GetCollectionsByPattern("MeshExport")
     if len(possibleCollections) != 1:
@@ -238,7 +265,14 @@ def ExportMeshes(dir: str):
         return CenLib.Cancelled()
 
     targetCollection = possibleCollections[0]
-    CenLib.SetCollectionToActive(targetCollection)
+    # CenLib.SetCollectionToActive(targetCollection)
+
+    objects = CenLib.GetObjectsInCollection(targetCollection)
+    for obj in objects:
+        if "stickfigure" in obj.name.lower():
+            continue
+        CenLib.SelectObject(obj)
+
 
     absoluteDir = bpy.path.abspath(dir)
     if not absoluteDir:
@@ -251,10 +285,10 @@ def ExportMeshes(dir: str):
 
     bpy.ops.export_scene.fbx(
         filepath=fullPath,
-        use_selection=False,
-        use_active_collection=True,
+        use_selection=True,
+        use_active_collection=False,
         use_visible=False,
-        object_types={"MESH"},
+        object_types={"MESH", "ARMATURE"},
         use_triangles=True,
         axis_forward="Y",
         axis_up="Z",
@@ -268,4 +302,10 @@ def ExportMeshes(dir: str):
 
     end = time.time()
     CenLib.PopupPrint(f"Completed Export Meshes! It took {(end - start):.1f} seconds!")
+
+    CenLib.ClearSelection()
+    for obj in originalSelection:
+        CenLib.SelectObject(obj)
+    CenLib.SelectObject(originalActive)
+    CenLib.SetCollectionToActive(originalActiveCollection)
     return CenLib.Finished()

@@ -37,6 +37,16 @@ def GetVertexGroupNames(obj: bpy.types.Object):
 def GetVertexGroup(obj: bpy.types.Object, groupName: str):
     return obj.vertex_groups.get(groupName)
 
+def RemoveVertexGroup(obj: bpy.types.Object, groupName: str)-> None: 
+    group = obj.vertex_groups.get(groupName)
+    if group is not None:
+        obj.vertex_groups.remove(group)
+
+def AddVertexGroup(obj: bpy.types.Object, groupName: str) -> None:
+    if groupName not in obj.vertex_groups:
+        obj.vertex_groups.new(name=groupName)
+
+
 def MoveToCollection(obj: bpy.types.Object, target_collection: bpy.types.Collection) -> bool:
     if not obj or not target_collection:
         PopupError("Object or collection not provided")
@@ -289,6 +299,8 @@ def SelectExclusive(object: bpy.types.Object) -> None:
     SelectObject(object)
 
 def SelectObject(object: bpy.types.Object) -> None:
+    if object is None:
+        return
     object.select_set(True)
     bpy.context.view_layer.objects.active = object
 
@@ -413,7 +425,19 @@ def IsInCollection(obj: bpy.types.Object, collection: bpy.types.Collection):
         return False
     return obj in GetObjectsInCollection(collection)
 
+def GetObjectsByPattern_CaseInsensitive(pattern : str) -> List[bpy.types.Object]:
+    result = []
+    for obj in bpy.data.objects:
+        if pattern.lower() in obj.name.lower():
+            result.append(obj)
+    return result
 
+def GetObjectsByPattern(pattern : str) -> List[bpy.types.Object]:
+    result = []
+    for obj in bpy.data.objects:
+        if pattern in obj.name:
+            result.append(obj)
+    return result
 
 
 def GetCollectionsByPattern(pattern: str) -> List[bpy.types.Collection]:
