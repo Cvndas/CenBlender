@@ -21,7 +21,7 @@ from bpy.types import PropertyGroup
 def ExportFbx(filepath, obj):
     prevSelected = CenLib.GetSelectedObjects()
     prevActive = CenLib.GetActiveObject()
-    wasHidden = CenLib.ObjectIsHidden(obj) 
+    wasHidden = CenLib.ObjectIsHidden(obj)
 
     try:
         CenLib.MakeObjectVisible(obj)
@@ -59,7 +59,7 @@ def ExportFbx(filepath, obj):
         CenLib.ClearSelection()
         for obj in prevSelected:
             CenLib.SelectObject(obj)
-        
+
         if CenLib.ObjectExists(prevActive):
             CenLib.SelectObject(prevActive)
 
@@ -133,6 +133,52 @@ def ExportToPath(path_property_name, context, doCollection):
                 CenLib.MakeObjectHidden(obj)
             else:
                 CenLib.MakeObjectVisible(obj)
+
+
+def ExportCollectionAsObject(path_property_name, context):
+    """
+    Placeholder for exporting the active collection as a single object.
+    """
+    # TODO: Implement export collection as object
+
+    activeCollection = CenLib.GetActiveCollection()
+    dupeCollection = CenLib.DuplicateCollection(activeCollection)
+    objects = CenLib.GetObjectsInCollection(dupeCollection)
+
+    for obj in objects:
+        CenLib.ConvertToMesh(obj)
+
+    joined = CenLib.JoinObjects(objects)
+    CenLib.SetOriginToWorldOrigin(joined)
+    CenLib.ApplyScale(joined)
+    CenLib.ApplyRotation(joined)
+
+
+    settings = context.scene.cenexporter
+    path = getattr(settings, path_property_name, "")
+
+    if not path:
+        CenLib.PopupError(
+            f"No path set for {path_property_name.replace('_path', '').title()}"
+        )
+        return CenLib.Cancelled()
+
+    directory = bpy.path.abspath(path)
+
+    # Check if directory exists
+    if not os.path.exists(directory):
+        CenLib.PopupError(f"Directory does not exist: {directory}")
+        return CenLib.Cancelled()
+
+    joined.name = activeCollection.name
+    filepath = os.path.join(directory, f"{activeCollection.name}.fbx")
+    ExportFbx(filepath, joined)
+
+    CenLib.DeleteCollection(dupeCollection)
+
+    CenLib.PopupPrint(f"Exported {activeCollection.name} as object!")
+
+    return CenLib.Finished()
 
 
 # ---------- operators ----------
@@ -224,6 +270,51 @@ class CENEXPORTER_OT_export_selection_path5(bpy.types.Operator):
 
     def execute(self, context):
         return ExportToPath("path5", context, False)
+
+
+class CENEXPORTER_OT_export_collection_as_object1(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_object1"
+    bl_label = "Export Collection as Object to Path 1"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return ExportCollectionAsObject("path1", context)
+
+
+class CENEXPORTER_OT_export_collection_as_object2(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_object2"
+    bl_label = "Export Collection as Object to Path 2"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return ExportCollectionAsObject("path2", context)
+
+
+class CENEXPORTER_OT_export_collection_as_object3(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_object3"
+    bl_label = "Export Collection as Object to Path 3"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return ExportCollectionAsObject("path3", context)
+
+
+class CENEXPORTER_OT_export_collection_as_object4(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_object4"
+    bl_label = "Export Collection as Object to Path 4"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return ExportCollectionAsObject("path4", context)
+
+
+class CENEXPORTER_OT_export_collection_as_object5(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_object5"
+    bl_label = "Export Collection as Object to Path 5"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return ExportCollectionAsObject("path5", context)
 
 
 class CENEXPORTER_OT_pick_path1(bpy.types.Operator):
@@ -365,7 +456,7 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
             objects = CenLib.GetObjectsInCollection(CenLib.GetActiveCollection())
             layout.label(text=f"Active: {col_name}")
             layout.label(text=f"Objects in Collection: {len(objects)}")
-            
+
             # Count selected objects
             selected_objects = CenLib.GetSelectedObjects()
             mesh_selected = [obj for obj in selected_objects if obj.type == 'MESH']
@@ -379,51 +470,56 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(settings, "path1", text="")
         row.operator("cenexporter.pick_path1", text="", icon="FILE_FOLDER")
-        
-        # Two buttons side by side for Path 1
+
+        # Three buttons side by side for Path 1
         split = layout.split(align=True)
         split.operator("cenexporter.export_selection_path1", text="Selection", icon="SELECT_SET")
         split.operator("cenexporter.export_path1", text="Collection", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_collection_as_object1", text="As Object", icon="OBJECT_DATAMODE")
         layout.separator()
 
         # Path 2
         row = layout.row(align=True)
         row.prop(settings, "path2", text="")
         row.operator("cenexporter.pick_path2", text="", icon="FILE_FOLDER")
-        
+
         split = layout.split(align=True)
         split.operator("cenexporter.export_selection_path2", text="Selection", icon="SELECT_SET")
         split.operator("cenexporter.export_path2", text="Collection", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_collection_as_object2", text="As Object", icon="OBJECT_DATAMODE")
         layout.separator()
 
         # Path 3
         row = layout.row(align=True)
         row.prop(settings, "path3", text="")
         row.operator("cenexporter.pick_path3", text="", icon="FILE_FOLDER")
-        
+
         split = layout.split(align=True)
         split.operator("cenexporter.export_selection_path3", text="Selection", icon="SELECT_SET")
         split.operator("cenexporter.export_path3", text="Collection", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_collection_as_object3", text="As Object", icon="OBJECT_DATAMODE")
         layout.separator()
 
         # Path 4
         row = layout.row(align=True)
         row.prop(settings, "path4", text="")
         row.operator("cenexporter.pick_path4", text="", icon="FILE_FOLDER")
-        
+
         split = layout.split(align=True)
         split.operator("cenexporter.export_selection_path4", text="Selection", icon="SELECT_SET")
         split.operator("cenexporter.export_path4", text="Collection", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_collection_as_object4", text="As Object", icon="OBJECT_DATAMODE")
         layout.separator()
 
         # Path 5
         row = layout.row(align=True)
         row.prop(settings, "path5", text="")
         row.operator("cenexporter.pick_path5", text="", icon="FILE_FOLDER")
-        
+
         split = layout.split(align=True)
         split.operator("cenexporter.export_selection_path5", text="Selection", icon="SELECT_SET")
-        split.operator("cenexporter.export_path5", text="Collection", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_path5", text="Col-Parts", icon="OUTLINER_COLLECTION")
+        split.operator("cenexporter.export_collection_as_object5", text="Col-Piece", icon="OBJECT_DATAMODE")
 
 
 # ---------- registration ----------
@@ -439,6 +535,11 @@ classes = (
     CENEXPORTER_OT_export_selection_path3,
     CENEXPORTER_OT_export_selection_path4,
     CENEXPORTER_OT_export_selection_path5,
+    CENEXPORTER_OT_export_collection_as_object1,
+    CENEXPORTER_OT_export_collection_as_object2,
+    CENEXPORTER_OT_export_collection_as_object3,
+    CENEXPORTER_OT_export_collection_as_object4,
+    CENEXPORTER_OT_export_collection_as_object5,
     CENEXPORTER_OT_pick_path1,
     CENEXPORTER_OT_pick_path2,
     CENEXPORTER_OT_pick_path3,

@@ -8,6 +8,8 @@ bl_info = {
     "category": "Centradigon Tools",
 }
 
+from gc import collect
+
 import bpy
 import CenLib
 import time
@@ -31,6 +33,9 @@ class CenAnimatePanel(Panel):
         col_layout.separator_spacer()
 
         col_layout.operator("wm.export_animation")
+
+        col_layout.separator()
+
         col_layout.operator("wm.export_meshes")
 
 
@@ -53,7 +58,9 @@ class ExportMeshes(bpy.types.Operator):
         if not context.scene.output_directory_path:
             CenLib.PopupError("You forgot to set the output path!")
             return CenLib.Cancelled()
-        return ExportMeshes(context.scene.output_directory_path)
+        return ExportMeshes(
+            context.scene.output_directory_path
+        )
 
 
 classes = [
@@ -86,6 +93,7 @@ def unregister() -> None:
         bpy.utils.unregister_class(c)
 
     del bpy.types.Scene.output_directory_path
+    del bpy.types.Scene.mesh_collection_name
 
     print("Unregistered CenAnimate")
 
@@ -106,7 +114,13 @@ import os
 
 def ExportAnimation(dir : str):
     start = time.time()
+
     print("Running ExportAnimation()")
+
+    if not CenLib.IsInObjectMode():
+        CenLib.PopupError("Must be in object mode!")
+        return CenLib.Cancelled()
+
     if not dir:
         CenLib.PopupError("Forgot to set output!")
         return CenLib.Cancelled()
@@ -244,7 +258,8 @@ def ExportAnimation(dir : str):
     for obj in originalSelection:
         CenLib.SelectObject(obj)
     CenLib.SelectObject(originalActive)
-    CenLib.SetCollectionToActive(originalActiveCollection)
+    if originalActiveCollection:
+        CenLib.SetCollectionToActive(originalActiveCollection)
 
     end = time.time()
     CenLib.PopupPrint(f"Completed Export Animation! It took {(end - start):.1f} seconds! (We excluded {", ".join([col.name for col in temporarilyExcluded])})")
@@ -259,19 +274,48 @@ def ExportMeshes(dir: str):
     originalActiveCollection = CenLib.GetActiveCollection()
 
     CenLib.ClearSelection()
+
+    # If the user provided a collection name, look it up by exact name.
+    # Otherwise fall back to the old "MeshExport" pattern behavior.
+
     possibleCollections = CenLib.GetCollectionsByPattern("MeshExport")
     if len(possibleCollections) != 1:
         CenLib.PopupError(f"Found {len(possibleCollections)} collections with MeshExport in the name. There should be just one.")
         return CenLib.Cancelled()
+    meshExportCollection = possibleCollections[0]
 
-    targetCollection = possibleCollections[0]
-    # CenLib.SetCollectionToActive(targetCollection)
 
-    objects = CenLib.GetObjectsInCollection(targetCollection)
+
+    exportToUnity = CenLib.GetCollectionByName("ExportToUnity")
+    if not exportToUnity:
+        CenLib.PopupError('Failed to find a collection named "ExportToUnity"')
+        return CenLib.Cancelled()
+
+    collectionsToExclude = []
+    if CenLib.CollectionWasExcluded(exportToUnity):
+        CenLib.IncludeCollection(exportToUnity)
+        collectionsToExclude.append(exportToUnity)
+    for toUnity in CenLib.GetAllChildCollections(exportToUnity):
+        if CenLib.CollectionWasExcluded(toUnity):
+            CenLib.IncludeCollection(toUnity)
+            collectionsToExclude.append(toUnity)
+
+    collectionsToReInclude = []
+    dontExportToUnity = CenLib.GetCollectionByName("DontExportToUnity")
+    if dontExportToUnity and CenLib.CollectionWasIncluded(dontExportToUnity):
+        CenLib.ExcludeCollection(dontExportToUnity)
+        collectionsToReInclude.append(dontExportToUnity)
+
+
+
+    # CenLib.SetCollectionToActive(meshExportCollection)
+
+    objects = CenLib.GetObjectsInCollection(meshExportCollection)
     for obj in objects:
         if "stickfigure" in obj.name.lower():
             continue
-        CenLib.SelectObject(obj)
+        if CenLib.ObjectIsVisible(obj):
+            CenLib.SelectObject(obj)
 
 
     absoluteDir = bpy.path.abspath(dir)
@@ -279,7 +323,7 @@ def ExportMeshes(dir: str):
         CenLib.PopupError("Forgot to set output path")
         return CenLib.Cancelled()
 
-    fileName = targetCollection.name
+    fileName = f"MESH_{CenLib.GetCurrentFileName(includeExtension=False)}"
     fullPath = os.path.join(absoluteDir, f"{fileName}.fbx")
 
 
@@ -303,9 +347,18 @@ def ExportMeshes(dir: str):
     end = time.time()
     CenLib.PopupPrint(f"Completed Export Meshes! It took {(end - start):.1f} seconds!")
 
+    for col in collectionsToExclude:
+        CenLib.ExcludeCollection(col)
+
+    for col in collectionsToReInclude:
+        CenLib.IncludeCollection(col)
+
     CenLib.ClearSelection()
     for obj in originalSelection:
         CenLib.SelectObject(obj)
-    CenLib.SelectObject(originalActive)
-    CenLib.SetCollectionToActive(originalActiveCollection)
+
+    if originalActive:
+        CenLib.SelectObject(originalActive)
+    if originalActiveCollection:
+        CenLib.SetCollectionToActive(originalActiveCollection)
     return CenLib.Finished()

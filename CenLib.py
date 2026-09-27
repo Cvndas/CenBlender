@@ -27,7 +27,7 @@ def GetAllObjects()->List[bpy.types.Object]:
 
 def GetModifierOwner(mod: bpy.types.Modifier)->bpy.types.Object:
     return mod.id_data
-    
+
 def GetVertexGroupNames(obj: bpy.types.Object):
     allNames = []
     for vertexGroup in obj.vertex_groups:
@@ -37,7 +37,7 @@ def GetVertexGroupNames(obj: bpy.types.Object):
 def GetVertexGroup(obj: bpy.types.Object, groupName: str):
     return obj.vertex_groups.get(groupName)
 
-def RemoveVertexGroup(obj: bpy.types.Object, groupName: str)-> None: 
+def RemoveVertexGroup(obj: bpy.types.Object, groupName: str)-> None:
     group = obj.vertex_groups.get(groupName)
     if group is not None:
         obj.vertex_groups.remove(group)
@@ -47,14 +47,81 @@ def AddVertexGroup(obj: bpy.types.Object, groupName: str) -> None:
         obj.vertex_groups.new(name=groupName)
 
 
+def GetParentCollection(collection: bpy.types.Collection) -> Optional[bpy.types.Collection]:
+    """
+    Get the immediate parent collection of a given collection.
+
+    Args:
+        collection: The collection to find the parent of
+
+    Returns:
+        Optional[bpy.types.Collection]: The parent collection if found, None otherwise
+    """
+    if not collection:
+        PopupError("No collection provided")
+        return None
+
+    # Check if collection is directly in the scene root
+    if collection.name in bpy.context.scene.collection.children:
+        return bpy.context.scene.collection
+
+    # Search through all collections to find which one has this as a child
+    for parent in bpy.data.collections:
+        if collection.name in parent.children:
+            return parent
+
+    return None
+
+def GetDirectChildCollections(parentCollection: bpy.types.Collection) -> List[bpy.types.Collection]:
+    """
+    Get the direct (immediate) child collections of a given collection.
+    Does not recurse into grandchildren.
+
+    Args:
+        parentCollection: The collection whose direct children to retrieve
+
+    Returns:
+        List[bpy.types.Collection]: The direct child collections, or [] if none/invalid
+    """
+    if not parentCollection:
+        return []
+
+    return list(parentCollection.children)
+
+
+def GetAllChildCollections(parentCollection: bpy.types.Collection) -> List[bpy.types.Collection]:
+    """
+    Get all descendant collections (children, grandchildren, etc.) of a given collection.
+    Recurses through the full hierarchy.
+
+    Args:
+        parentCollection: The collection whose descendants to retrieve
+
+    Returns:
+        List[bpy.types.Collection]: All descendant collections, or [] if none/invalid
+    """
+    if not parentCollection:
+        return []
+
+    result = []
+
+    def RecursiveCollect(collection: bpy.types.Collection) -> None:
+        for child in collection.children:
+            result.append(child)
+            RecursiveCollect(child)
+
+    RecursiveCollect(parentCollection)
+    return result
+
+
 def MoveToCollection(obj: bpy.types.Object, target_collection: bpy.types.Collection) -> bool:
     if not obj or not target_collection:
         PopupError("Object or collection not provided")
         return False
-    
+
     for col in obj.users_collection:
         col.objects.unlink(obj)
-    
+
     target_collection.objects.link(obj)
     return True
 
@@ -203,7 +270,7 @@ def DuplicateObject(targetObject: bpy.types.Object, useSameNameAsOriginal: bool 
         newObject.name = targetObject.name
     else:
         newObject.name = f"{targetObject.name}_Copy"
-    
+
     return newObject
 
 
@@ -272,7 +339,7 @@ def EnterGrabMode():
     # Set to object mode first if needed
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
-    
+
     # Enter grab mode
     bpy.ops.transform.translate('INVOKE_DEFAULT')
 
@@ -317,7 +384,7 @@ def ClearSelection() -> None:
 
 def GetLayerCollection(target_collection: bpy.types.Collection) -> Optional[bpy.types.LayerCollection]:
     view_layer = bpy.context.view_layer
-    
+
     def find_layer_collection(layer_collection, target):
         if layer_collection.collection == target:
             return layer_collection
@@ -326,7 +393,7 @@ def GetLayerCollection(target_collection: bpy.types.Collection) -> Optional[bpy.
             if result:
                 return result
         return None
-    
+
     return find_layer_collection(view_layer.layer_collection, target_collection)
 
 def ObjectIsHidden(obj: bpy.types.Object) -> bool:
@@ -335,16 +402,16 @@ def ObjectIsHidden(obj: bpy.types.Object) -> bool:
 def ObjectIsVisible(obj: bpy.types.Object) -> bool:
     if not obj:
         return False
-    
+
     if obj.hide_get():
         return False
-    
+
     if obj.hide_viewport:
         return False
-    
+
     viewLayer = bpy.context.view_layer
-    
-    
+
+
     def is_collection_excluded(collection):
         layerCollection = GetLayerCollection(collection)
         if layerCollection and layerCollection.exclude:
@@ -352,11 +419,11 @@ def ObjectIsVisible(obj: bpy.types.Object) -> bool:
         if collection.hide_viewport:
             return True
         return False
-    
+
     for collection in obj.users_collection:
         if is_collection_excluded(collection):
             return False
-    
+
     return True
 
 
@@ -374,7 +441,7 @@ def MakeCollectionVisible(targetCollection: bpy.types.Collection) -> None:
         layer_collection.exclude = False
         for child in layer_collection.children:
             set_visible_recursive(child)
-    
+
     layer_collection = GetLayerCollection(targetCollection)
     if layer_collection:
         set_visible_recursive(layer_collection)
@@ -386,7 +453,7 @@ def SetCollectionToActive(targetCollection: bpy.types.Collection) -> bool:
         return False
 
     viewLayer = bpy.context.view_layer
-    
+
     def find_layer_collection(layer_collection, target):
         if layer_collection.collection == target:
             return layer_collection
@@ -395,13 +462,13 @@ def SetCollectionToActive(targetCollection: bpy.types.Collection) -> bool:
             if result:
                 return result
         return None
-    
+
     layerCollection = find_layer_collection(viewLayer.layer_collection, targetCollection)
-    
+
     if layerCollection:
         viewLayer.active_layer_collection = layerCollection
         return True
-    
+
     return False
 
 def GetActiveCollection() -> Optional[bpy.types.Collection]:
@@ -455,7 +522,7 @@ def ExcludeCollection(targetCollection: bpy.types.Collection) -> bool:
         return False
 
     viewLayer = bpy.context.view_layer
-    
+
     def find_layer_collection(layer_collection, target):
         if layer_collection.collection == target:
             return layer_collection
@@ -464,24 +531,36 @@ def ExcludeCollection(targetCollection: bpy.types.Collection) -> bool:
             if result:
                 return result
         return None
-    
+
     layerCollection = find_layer_collection(viewLayer.layer_collection, targetCollection)
-    
+
     if layerCollection:
         layerCollection.exclude = True
         return True
     return False
 
 
+def GetCurrentFileName(includeExtension: bool = False) -> str:
+    if not bpy.data.filepath:
+        return ""
 
+    fileName = os.path.splitext(os.path.basename(bpy.data.filepath))[0]
+
+    if includeExtension:
+        fileName += ".blend"
+
+    return fileName
+
+def CollectionWasIncluded(targetCollection: bpy.types.Collection) -> bool:
+    return not CollectionWasExcluded(targetCollection)
 
 def CollectionWasExcluded(targetCollection: bpy.types.Collection) -> bool:
     if not targetCollection:
         return False
-    
-    
+
+
     layerCollection = GetLayerCollection(targetCollection)
-    
+
     if layerCollection:
         return layerCollection.exclude
     return False
@@ -503,7 +582,7 @@ def IncludeCollection(targetCollection: bpy.types.Collection) -> bool:
 
 def ObjectExists(obj: Optional[bpy.types.Object]) -> bool:
     return obj is not None and obj.name in bpy.data.objects
-        
+
 
 def GetActiveObject() -> bpy.types.Object:
     return bpy.context.view_layer.objects.active
@@ -540,53 +619,53 @@ def GetModifier(obj: bpy.types.Object, userSpecifiedName: str, modifierIndex: in
 def GetParentOfCollection(collection: bpy.types.Collection) -> Optional[bpy.types.Collection]:
     """
     Get the immediate parent collection of a given collection.
-    
+
     Args:
         collection: The collection to find the parent of
-        
+
     Returns:
         Optional[bpy.types.Collection]: The parent collection if found, None otherwise
     """
     if not collection:
         PopupError("No collection provided")
         return None
-    
+
     # Check if collection is directly in the scene root
     if collection.name in bpy.context.scene.collection.children:
         return bpy.context.scene.collection
-    
+
     # Search through all collections to find which one has this as a child
     for parent in bpy.data.collections:
         if collection.name in parent.children:
             return parent
-    
+
     return None
 
 
 def MakeCollectionChildOf(target: bpy.types.Collection, collectionToBecomeChildOf: bpy.types.Collection) -> bool:
     """
     Make a collection a child of another collection.
-    
+
     Args:
         target: The collection to move as a child
         collectionToBecomeChildOf: The parent collection
-        
+
     Returns:
         bool: True if successful, False otherwise
     """
     if not target or not collectionToBecomeChildOf:
         PopupError("Target collection or parent collection not provided")
         return False
-    
+
     # Check if target is already a child of the parent
     if target.name in collectionToBecomeChildOf.children:
         return True
-    
+
     # Check if target is the same as parent (prevent self-parenting)
     if target == collectionToBecomeChildOf:
         PopupError("Cannot make a collection a child of itself")
         return False
-    
+
     # Check if parent is a descendant of target (prevent circular parenting)
     def is_descendant(parent: bpy.types.Collection, potential_child: bpy.types.Collection) -> bool:
         for child in parent.children:
@@ -595,24 +674,24 @@ def MakeCollectionChildOf(target: bpy.types.Collection, collectionToBecomeChildO
             if is_descendant(child, potential_child):
                 return True
         return False
-    
+
     if is_descendant(target, collectionToBecomeChildOf):
         PopupError("Cannot create circular collection hierarchy")
         return False
-    
+
     # Remove target from its current parent(s)
     # Remove from scene root if present
     if target.name in bpy.context.scene.collection.children:
         bpy.context.scene.collection.children.unlink(target)
-    
+
     # Remove from any other parent collections
     for parent in bpy.data.collections:
         if target.name in parent.children:
             parent.children.unlink(target)
-    
+
     # Link target as child of the new parent
     collectionToBecomeChildOf.children.link(target)
-    
+
     return True
 
 def ModifierIsActive(mod: bpy.types.Modifier)->bool:
@@ -636,24 +715,24 @@ def DeleteCollection(col: bpy.types.Collection) -> None:
     if not col:
         PopupError("No collection provided")
         return
-    
+
     # Get all objects in the collection (including nested)
     objects_to_delete = GetObjectsInCollection(col)
-    
+
     # Delete all objects
     for obj in objects_to_delete:
         if ObjectExists(obj):
             DeleteObject(obj)
-    
+
     # Remove the collection from all parents
     for parent in bpy.data.collections:
         if col.name in parent.children:
             parent.children.unlink(col)
-    
+
     # Remove from scene root if present
     if col.name in bpy.context.scene.collection.children:
         bpy.context.scene.collection.children.unlink(col)
-    
+
     # Finally, remove the collection itself
     bpy.data.collections.remove(col)
 
