@@ -182,12 +182,153 @@ def IsEditingNLA()->bool:
         return bpy.context.scene.is_nla_tweakmode
     return False
 
+
+
+# Snapshot taken by ExitEditingNLA(), consumed by EnterEditingNLA()
+_nlaTweakState = {}
+
+def _FindTweakedStrip(ad):
+    """While in tweak mode, find the (track, strip) being edited."""
+    candidates = []
+    for track in ad.nla_tracks:
+        for strip in track.strips:
+            if strip.action == ad.action:
+                candidates.append((track, strip))
+
+    if not candidates:
+        return None, None
+
+    # Prefer the strip flagged active, then the active track
+    for track, strip in candidates:
+        if strip.active:
+            return track, strip
+    for track, strip in candidates:
+        if track.active:
+            return track, strip
+    return candidates[0]
+
+def ExitEditingNLA() -> bool:
+    global _nlaTweakState
+    exited = False
+    state = {}
+
+    for obj in bpy.context.scene.objects:
+        ad = obj.animation_data
+        if ad is None:
+            continue
+
+        # Record what's needed to get back in, before we change anything
+        soloTracks = [t.name for t in ad.nla_tracks if t.is_solo]
+
+        if ad.use_tweak_mode:
+            track, strip = _FindTweakedStrip(ad)
+            state[obj.name] = {
+                "track": track.name if track else None,
+                "strip": strip.name if strip else None,
+                "solo": soloTracks,
+            }
+            ad.use_tweak_mode = False
+            exited = True
+
+        for track in ad.nla_tracks:
+            track.is_solo = False
+
+    # Only overwrite the snapshot if we actually exited something,
+    # so a second call doesn't wipe it
+    if exited:
+        _nlaTweakState = state
+
+    return exited
+
+
+
+
+def ReEnterEditingNLA() -> bool:
+    """
+    Re-enter the tweak mode that ExitEditingNLA() left.
+    Returns True if tweak mode was re-entered on at least one object.
+    """
+    global _nlaTweakState
+    entered = False
+
+    for objName, info in _nlaTweakState.items():
+        obj = bpy.data.objects.get(objName)
+        if obj is None or obj.animation_data is None:
+            continue
+
+        ad = obj.animation_data
+        if ad.use_tweak_mode:
+            continue
+
+        track = ad.nla_tracks.get(info["track"]) if info["track"] else None
+        strip = track.strips.get(info["strip"]) if track and info["strip"] else None
+        if track is None or strip is None:
+            continue
+
+        # Tweak mode enters on the active track's active/selected strip.
+        # strip.active is read-only, so drive it through selection instead.
+        for t in ad.nla_tracks:
+            t.select = False
+            for s in t.strips:
+                s.select = False
+
+        ad.nla_tracks.active = track
+        track.select = True
+        strip.select = True
+
+        try:
+            ad.use_tweak_mode = True
+            entered = True
+        except Exception as e:
+            print(f"EnterEditingNLA failed for {objName}: {e}")
+            continue
+
+        # Only ever assign True. Assigning False to a non-solo track
+        # clears the solo flag on the whole animation data.
+        for name in info["solo"]:
+            t = ad.nla_tracks.get(name)
+            if t is not None:
+                t.is_solo = True
+
+    if entered:
+        _nlaTweakState = {}
+
+    return entered
+
+# def ExitEditingNLA() -> bool:
+#     exited = False
+#
+#     for obj in bpy.context.scene.objects:
+#         ad = obj.animation_data
+#         if ad is None:
+#             continue
+#
+#         # Leave tweak mode on every object that's in it
+#         if ad.use_tweak_mode:
+#             ad.use_tweak_mode = False
+#             exited = True
+#
+#         # Re-enable everything so all strips are evaluated/exported
+#         for track in ad.nla_tracks:
+#             track.is_solo = False
+#
+#     return exited
+
 def IsInLocalView()->bool:
     return getattr(bpy.context.space_data, "local_view", None) is not None
 
 def EnterObjectMode()-> None:
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
+
+def EnterEditMode() -> None:
+    if bpy.context.mode != "EDIT":
+        bpy.ops.object.mode_set(mode="EDIT")
+
+
+def EnterPoseMode() -> None:
+    if bpy.context.mode != "POSE":
+        bpy.ops.object.mode_set(mode="POSE")
 
 def EnterMode(modeToEnter: str)->None:
     bpy.ops.object.mode_set(mode=modeToEnter)
@@ -514,6 +655,37 @@ def GetCollectionsByPattern(pattern: str) -> List[bpy.types.Collection]:
             result.append(collection)
     return result
 
+def IsInObjectMode() -> bool:
+    """
+    Check whether Blender is currently in Object Mode.
+
+    Returns:
+        bool: True if the current mode is "OBJECT", False otherwise.
+    """
+    return bpy.context.mode == "OBJECT"
+
+
+def IsInEditMode() -> bool:
+    """
+    Check whether Blender is currently in an Edit Mode.
+
+    Covers all edit variants (mesh, armature, curve, etc.), since
+    bpy.context.mode reports them with different suffixes.
+
+    Returns:
+        bool: True if the current mode is any EDIT_* mode, False otherwise.
+    """
+    return bpy.context.mode.startswith("EDIT")
+
+
+def IsInPoseMode() -> bool:
+    """
+    Check whether Blender is currently in Pose Mode.
+
+    Returns:
+        bool: True if the current mode is "POSE", False otherwise.
+    """
+    return bpy.context.mode == "POSE"
 
 
 def ExcludeCollection(targetCollection: bpy.types.Collection) -> bool:

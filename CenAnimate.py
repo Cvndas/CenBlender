@@ -16,6 +16,7 @@ import time
 from bpy.types import Panel, Context
 from typing import Type
 
+
 class CenAnimatePanel(Panel):
     bl_label = "CenAnimate"
     bl_idname = "VIEW3D_PT_CenAnimate"
@@ -27,22 +28,34 @@ class CenAnimatePanel(Panel):
         layout = self.layout
         col_layout = layout.column(align=False)
 
-        col_layout.prop(context.scene, "output_directory_path")
-        # col_layout.prop(context.scene, "output_name")
-
-        col_layout.separator_spacer()
-
-        col_layout.operator("wm.export_animation")
+        col_layout.operator("wm.prepare_collections", icon="OUTLINER_COLLECTION")
 
         col_layout.separator()
 
-        col_layout.operator("wm.export_meshes")
+        col_layout.prop(context.scene, "output_directory_path")
+        # col_layout.prop(context.scene, "output_name")
 
+        col_layout.separator()
+
+        col_layout.operator("wm.export_animation", icon="ANIM")
+
+        col_layout.separator()
+
+        col_layout.operator("wm.export_meshes", icon="MESH_DATA")
+
+
+class PrepareCollections(bpy.types.Operator):
+    bl_idname = "wm.prepare_collections"
+    bl_label = "Prepare Collections"
+
+    def execute(self, context):
+        PrepareCollections()
+        return CenLib.Finished()
 
 
 class ExportAnimation(bpy.types.Operator):
     bl_idname = "wm.export_animation"
-    bl_label = "Safely Export Animation"
+    bl_label = "Export Animation"
 
     def execute(self, context):
         if not context.scene.output_directory_path:
@@ -64,6 +77,7 @@ class ExportMeshes(bpy.types.Operator):
 
 
 classes = [
+    PrepareCollections,
     ExportAnimation,
     ExportMeshes,
     CenAnimatePanel,
@@ -109,6 +123,16 @@ def unregister() -> None:
 import os
 
 
+def PrepareCollections():
+    meshExport = CenLib.CreateCollection(f"{CenLib.GetCurrentFileName()}_MeshExport")
+    animExport = CenLib.CreateCollection(f"{CenLib.GetCurrentFileName()}_AnimExport")
+    dontExportAnim = CenLib.CreateCollection("DontExportAnim")
+    exportToUnity = CenLib.CreateCollection("ExportToUnity")
+    dontExportToUnity = CenLib.CreateCollection("DontExportToUnity")
+    CenLib.MakeCollectionChildOf(animExport, meshExport)
+    CenLib.MakeCollectionChildOf(dontExportAnim, meshExport)
+    CenLib.MakeCollectionChildOf(exportToUnity, dontExportAnim)
+    CenLib.MakeCollectionChildOf(dontExportToUnity, dontExportAnim)
 
 
 
@@ -117,8 +141,17 @@ def ExportAnimation(dir : str):
 
     print("Running ExportAnimation()")
 
-    if not CenLib.IsInObjectMode():
-        CenLib.PopupError("Must be in object mode!")
+    wasInPoseMode = False
+    wasInEditMode = False
+
+    if CenLib.IsInEditMode():
+        wasInEditMode = True
+        CenLib.EnterObjectMode()
+    elif CenLib.IsInPoseMode():
+        wasInPoseMode = True
+        CenLib.EnterObjectMode()
+    elif not CenLib.IsInObjectMode():
+        CenLib.PopupError("Must be in Bbject or Edit or Pose mode!")
         return CenLib.Cancelled()
 
     if not dir:
@@ -182,6 +215,7 @@ def ExportAnimation(dir : str):
         CenLib.PopupError(f"Armature scale wasn't (1, 1, 1), but {armatureObj.scale}")
         return CenLib.Cancelled()
 
+    wasEditingNLA = False
 
     absoluteDir = bpy.path.abspath(dir)
     if not absoluteDir:
@@ -198,8 +232,10 @@ def ExportAnimation(dir : str):
 
         # Being in NLA is known to cause corruption or missing animations
         if CenLib.IsEditingNLA():
-            CenLib.PopupError("Please exit the action you're currently editing.")
-            return CenLib.Cancelled()
+            CenLib.ExitEditingNLA()
+            wasEditingNLA = True
+            # CenLib.PopupError("Please exit the action you're currently editing.")
+            # return CenLib.Cancelled()
 
         stickFigs = CenLib.GetObjectsByPattern_CaseInsensitive("stickfig")
         stickFigsToHide = []
@@ -261,10 +297,21 @@ def ExportAnimation(dir : str):
     if originalActiveCollection:
         CenLib.SetCollectionToActive(originalActiveCollection)
 
+    if wasInEditMode:
+        CenLib.EnterEditMode()
+    elif wasInPoseMode:
+        CenLib.EnterPoseMode()
+
+    if wasEditingNLA:
+        CenLib.ReEnterEditingNLA()
+
     end = time.time()
     CenLib.PopupPrint(f"Completed Export Animation! It took {(end - start):.1f} seconds! (We excluded {", ".join([col.name for col in temporarilyExcluded])})")
 
     return CenLib.Finished()
+
+
+
 
 def ExportMeshes(dir: str):
     start = time.time()
@@ -361,4 +408,6 @@ def ExportMeshes(dir: str):
         CenLib.SelectObject(originalActive)
     if originalActiveCollection:
         CenLib.SetCollectionToActive(originalActiveCollection)
+
+
     return CenLib.Finished()
