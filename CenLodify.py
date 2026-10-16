@@ -21,31 +21,31 @@ def BringIntoParts():
     if not selected:
         CenLib.PopupError("No objects selected")
         return CenLib.Cancelled()
-    
+
     active = CenLib.GetActiveObject()
     if not active:
         CenLib.PopupError("No active object")
         return CenLib.Cancelled()
-    
+
     base_name = active.name
     suffixes_to_remove = ["-V", "-V_LOD0", "-V_LOD1", "_V", "_V_LOD0", "_V_LOD1"]
     for suffix in suffixes_to_remove:
         if base_name.endswith(suffix):
             base_name = base_name.removesuffix(suffix)
             break
-    
+
     parts_collection_name = base_name + "-Parts"
-    
+
     existing = CenLib.GetCollectionByName(parts_collection_name)
     if existing:
         CenLib.PopupError(f"Collection {parts_collection_name} already exists")
         return CenLib.Cancelled()
-    
+
     parts_collection = CenLib.CreateCollection(parts_collection_name)
-    
+
     for obj in selected:
         CenLib.MoveToCollection(obj, parts_collection)
-    
+
     CenLib.SetCollectionToActive(parts_collection)
     CenLib.PopupPrint(f"Moved {len(selected)} objects into {parts_collection_name}")
     return CenLib.Finished()
@@ -57,7 +57,7 @@ def ConvertPartCollectionToLodCollection():
         return CenLib.Cancelled()
 
     CenLib.MakeCollectionVisible(partCollection)
-    CenLib.ClearSelection() 
+    CenLib.ClearSelection()
 
     lodCollectionName = partCollection.name.removesuffix("-Parts") + "-CenLods"
 
@@ -249,12 +249,25 @@ class CENLODIFY_PT_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        col = (
-            context.view_layer.active_layer_collection.collection
-            if context.view_layer.active_layer_collection
-            else None
-        )
-        layout.label(text=f"Active: {col.name if col else '<none>'}")
+
+        # Display active collection and selected object count in a box
+        active_layer = context.view_layer.active_layer_collection
+        box = layout.box()
+        if active_layer:
+            col_name = active_layer.collection.name
+
+            # Count selected mesh objects
+            selected_objects = CenLib.GetSelectedObjects()
+            mesh_selected = [obj for obj in selected_objects if obj.type == 'MESH']
+
+            box.label(
+                text=f"Collection: {col_name}", icon="OUTLINER_COLLECTION"
+            )
+            box.label(text=f"Selected Objects: {len(mesh_selected)}", icon="SELECT_SET")
+        else:
+            box.label(text="Collection: <none>", icon="OUTLINER_COLLECTION")
+            box.label(text="Selected Objects: 0", icon="SELECT_SET")
+
         layout.separator()
 
         layout.operator("cenlodify.bring_into_parts", icon="IMPORT")

@@ -12,7 +12,7 @@ import os
 import CenLib
 
 import bpy
-from bpy.props import PointerProperty, StringProperty
+from bpy.props import PointerProperty, StringProperty, FloatProperty
 from bpy.types import PropertyGroup
 
 
@@ -137,7 +137,6 @@ def ExportCollectionAsObject(path_property_name, context):
     """
     Placeholder for exporting the active collection as a single object.
     """
-    # TODO: Implement export collection as object
 
     activeCollection = CenLib.GetActiveCollection()
     dupeCollection = CenLib.DuplicateCollection(activeCollection)
@@ -168,7 +167,7 @@ def ExportCollectionAsObject(path_property_name, context):
         CenLib.PopupError(f"Directory does not exist: {directory}")
         return CenLib.Cancelled()
 
-    joined.name = activeCollection.name
+    joined.name = activeCollection.name + "-V_LOD0"
     filepath = os.path.join(directory, f"{activeCollection.name}.fbx")
     ExportFbx(filepath, joined)
 
@@ -178,6 +177,63 @@ def ExportCollectionAsObject(path_property_name, context):
 
     return CenLib.Finished()
 
+
+def ExportCollectionAsLodPair(path_property_name, context, lod1Density):
+    """
+    Placeholder for exporting the active collection as a LOD pair.
+    """
+    # TODO: Implement export collection as LOD pair
+    activeCollection = CenLib.GetActiveCollection()
+    dupeCollection = CenLib.DuplicateCollection(activeCollection)
+    objects = CenLib.GetObjectsInCollection(dupeCollection)
+
+    for obj in objects:
+        CenLib.ConvertToMesh(obj)
+
+    joined = CenLib.JoinObjects(objects)
+    CenLib.SetOriginToWorldOrigin(joined)
+    CenLib.ApplyScale(joined)
+    CenLib.ApplyRotation(joined)
+
+    lod0 = joined
+    lod1 = CenLib.DuplicateObject(lod0)
+
+    decimateMod = CenLib.AddModifier(lod1, "Lod1Decimate", "DECIMATE")
+    CenLib.SetModifierProperty(decimateMod, "ratio", lod1Density)
+
+    lod0.name = activeCollection.name + "-V_LOD0"
+    lod1.name = activeCollection.name + "-V_LOD1"
+
+    ExportObject(path_property_name, context, lod0)
+    ExportObject(path_property_name, context, lod1)
+
+    CenLib.PopupPrint(f"Successfully exported {lod0.name} and {lod1.name}!")
+
+    CenLib.DeleteCollection(dupeCollection)
+
+
+
+    return CenLib.Finished()
+
+def ExportObject(path_property_name, context, object):
+    settings = context.scene.cenexporter
+    path = getattr(settings, path_property_name, "")
+
+    if not path:
+        CenLib.PopupError(
+            f"No path set for {path_property_name.replace('_path', '').title()}"
+        )
+        return CenLib.Cancelled()
+
+    directory = bpy.path.abspath(path)
+
+    # Check if directory exists
+    if not os.path.exists(directory):
+        CenLib.PopupError(f"Directory does not exist: {directory}")
+        return CenLib.Cancelled()
+
+    filepath = os.path.join(directory, f"{object.name}.fbx")
+    ExportFbx(filepath, object)
 
 # ---------- operators ----------
 class CENEXPORTER_OT_export_path1(bpy.types.Operator):
@@ -207,6 +263,16 @@ class CENEXPORTER_OT_export_collection_as_object1(bpy.types.Operator):
         return ExportCollectionAsObject("path1", context)
 
 
+class CENEXPORTER_OT_export_collection_as_lod_pair(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_lod_pair"
+    bl_label = "Export Collection as LOD Pair"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        lod1Density = context.scene.cenexporter.lod1_density
+        return ExportCollectionAsLodPair("path1", context, lod1Density)
+
+
 class CENEXPORTER_OT_pick_path1(bpy.types.Operator):
     bl_idname = "cenexporter.pick_path1"
     bl_label = "Choose Path 1"
@@ -232,6 +298,14 @@ class CENEXPORTER_PG_settings(PropertyGroup):
         default="",
         subtype="NONE",
     )
+    lod1_density: FloatProperty(
+        name="LOD1 Density",
+        description="Density value for LOD1 export",
+        default=0.5,
+        min=0.0,
+        max=1.0,
+        subtype="FACTOR",
+    )
 
 
 # ---------- UI panel ----------
@@ -246,21 +320,34 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         layout = self.layout
         settings = context.scene.cenexporter
 
-        # Display active collection
+        # Display active collection and object info in a box
         active_layer = context.view_layer.active_layer_collection
+        box = layout.box()
         if active_layer:
             col_name = active_layer.collection.name
             # Count mesh objects
             objects = CenLib.GetObjectsInCollection(CenLib.GetActiveCollection())
-            layout.label(text=f"Active Collection: {col_name}")
-            layout.label(text=f"Objects in Collection: {len(objects)}")
 
-            # Count selected objects
+            # Determine object display name (active object or "Multiple")
             selected_objects = CenLib.GetSelectedObjects()
             mesh_selected = [obj for obj in selected_objects if obj.type == 'MESH']
-            layout.label(text=f"Selected Objects: {len(mesh_selected)}")
+
+            if len(mesh_selected) == 1:
+                obj_name = mesh_selected[0].name
+            elif len(mesh_selected) > 1:
+                obj_name = "Multiple"
+            else:
+                obj_name = "None"
+
+            box.label(
+                text=f"Collection: {col_name}", icon="OUTLINER_COLLECTION"
+            )
+            box.label(text=f"Object: {obj_name}", icon="OBJECT_DATA")
+            box.label(text=f"Objects in Collection: {len(objects)}", icon="OBJECT_DATA")
+            box.label(text=f"Selected Objects: {len(mesh_selected)}", icon="SELECT_SET")
         else:
-            layout.label(text="Active: <none>")
+            box.label(text="Collection: <none>", icon="OUTLINER_COLLECTION")
+            box.label(text="Object: None", icon="OBJECT_DATA")
 
         layout.separator()
 
@@ -270,9 +357,17 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         row.operator("cenexporter.pick_path1", text="", icon="FILE_FOLDER")
 
         # Three buttons, each on its own full row
-        layout.operator("cenexporter.export_selection_path1", text="Selection as Multiple Objects", icon="SELECT_SET")
-        layout.operator("cenexporter.export_path1", text="Collection as Multiple Objects", icon="OUTLINER_COLLECTION")
+        layout.operator("cenexporter.export_selection_path1", text="Selection as Individual Objects", icon="SELECT_SET")
+        layout.operator("cenexporter.export_path1", text="Collection as Individual Objects", icon="OUTLINER_COLLECTION")
         layout.operator("cenexporter.export_collection_as_object1", text="Collection as Single Object", icon="OUTLINER_COLLECTION")
+
+        layout.separator()
+
+        # LOD1 Density field
+        layout.prop(settings, "lod1_density", text="LOD1 Density")
+
+        # Collection as LOD Pair button
+        layout.operator("cenexporter.export_collection_as_lod_pair", text="Collection as LOD Pair", icon="OUTLINER_COLLECTION")
 
 
 # ---------- registration ----------
@@ -281,6 +376,7 @@ classes = (
     CENEXPORTER_OT_export_path1,
     CENEXPORTER_OT_export_selection_path1,
     CENEXPORTER_OT_export_collection_as_object1,
+    CENEXPORTER_OT_export_collection_as_lod_pair,
     CENEXPORTER_OT_pick_path1,
     CENEXPORTER_PT_panel,
 )

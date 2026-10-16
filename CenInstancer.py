@@ -192,7 +192,7 @@ def MakeRoomFor(obj: bpy.types.Object, makesRoom: str, forValue: str):
     makeRoomIndex = makesRoomGroup.index
     forIndex = forGroup.index
 
-    
+
     for vertex in obj.data.vertices:
         for vertexGroup in vertex.groups:
             if vertexGroup.group == makeRoomIndex:
@@ -208,7 +208,7 @@ def MakeRoomFor(obj: bpy.types.Object, makesRoom: str, forValue: str):
                     break
 
     obj.data.update()
-        
+
 
 def MakeRoomForSelected(makesRoom: str, forValue: str):
     for selected in CenLib.GetSelectedObjects():
@@ -419,7 +419,7 @@ class CENINSTANCER_OT_SetMinimumDensity(bpy.types.Operator):
 class CENINSTANCER_OT_MakeRoomForSelected(bpy.types.Operator):
     bl_idname = "ceninstancer.make_room_for_selected"
     bl_label = "Make Room For - Selected"
-    bl_description = "Make room for selected objects in the scene"
+    bl_description = "Make room on selected objects in the scene"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -452,13 +452,13 @@ class CenInstancerPanel(Panel):
     def draw(self, context: Context):
         layout = self.layout
         colLayout = layout.column(align=False)
-        
+
         # Display selected object
         activeObj = CenLib.GetActiveObject()
         colLayout.label(text=f"Selected: {activeObj.name if activeObj else '<none>'}")
-        
+
         colLayout.separator()
-        
+
         colLayout.prop(context.scene, "output_directory_path")
         colLayout.prop(context.scene, "level_name")
 
@@ -481,7 +481,7 @@ class CenInstancerPanel(Panel):
         colLayout.label(text="Plant Domination:", icon="SETTINGS")
         colLayout.prop(context.scene, "ceninstancer_makes_room")
         colLayout.prop(context.scene, "ceninstancer_for_value")
-        
+
         row = colLayout.row(align=True)
         row.operator("ceninstancer.make_room_for_selected", icon="OBJECT_DATA")
         row.operator("ceninstancer.make_room_for_all", icon="WORLD")
@@ -584,7 +584,7 @@ def unregister() -> None:
     bpy.utils.unregister_class(CENINSTANCER_OT_SetMinimumDensity)
     bpy.utils.unregister_class(CENINSTANCER_OT_MakeRoomForSelected)
     bpy.utils.unregister_class(CENINSTANCER_OT_MakeRoomForAll)
-    
+
     del bpy.types.Scene.output_directory_path
     del bpy.types.Scene.level_name
     del bpy.types.Scene.ceninstancer_density_name
