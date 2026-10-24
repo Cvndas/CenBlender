@@ -3,9 +3,9 @@ bl_info = {
     "author": "Lrodas",
     "version": (1, 1),
     "blender": (4, 4, 0),
-    "location": "View3D > Sidebar > Centradigon Tab",
+    "location": "View3D > Sidebar > Cen Tab",
     "description": "Exporting points to json.",
-    "category": "Centradigon Tools",
+    "category": "Cen Tools",
 }
 
 from typing import Type
@@ -150,12 +150,12 @@ def ShareInstances():
 
         for obj in objectsToShareWith:
             AddAllUniqueInstancePaintersIfNotAlreadyPresent(
-                uniqueInstancePainterModifiers, c
+                uniqueInstancePainterModifiers, obj
             )
             AddAllUniqueVertexGroupsIfNotAlreadyPresent(
-                uniqueVertexGroupNames, c
+                uniqueVertexGroupNames, obj
             )
-            print("Added instance painters and vertex groups to object " + c.name)
+            print("Added instance painters and vertex groups to object " + obj.name)
 
         print("And we're done!")
 

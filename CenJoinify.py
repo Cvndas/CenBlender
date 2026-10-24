@@ -3,9 +3,9 @@ bl_info = {
     "author": "Lrodas",
     "version": (1, 0),
     "blender": (4, 5, 0),
-    "location": "View3D > Sidebar > Centradigon Tab",
+    "location": "View3D > Sidebar > Cen Tab",
     "description": "Group objects from selected collection into chunks by origin and join them",
-    "category": "Centradigon Tools",
+    "category": "Cen Tools",
 }
 
 from collections import defaultdict

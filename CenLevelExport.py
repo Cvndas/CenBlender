@@ -73,6 +73,8 @@ def ExportSingleSlot(collectionName, filepath):
     if CenLib.IsInLocalView():
         CenLib.PopupError("Exit local view first")
         return CenLib.Cancelled()
+    
+    CenLib.EnterObjectMode()
 
     if not collectionName or not filepath:
         CenLib.PopupError("Both collection name and file path must be set!")
@@ -92,6 +94,9 @@ def ExportAllSlots(context):
     if CenLib.IsInLocalView():
         CenLib.PopupError("Exit local view first")
         return CenLib.Cancelled()
+
+
+    CenLib.EnterObjectMode()
 
     T_start = time.time()
     settings = context.scene.cenlevelexport
@@ -204,7 +209,7 @@ class CENLEVELEXPORT_PT_panel(bpy.types.Panel):
     bl_idname = "CENLEVELEXPORT_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Level Export"
+    bl_category = "Exports"
     
     def draw(self, context):
         layout = self.layout

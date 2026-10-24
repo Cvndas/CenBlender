@@ -10,62 +10,39 @@ bl_info = {
 
 import os
 import CenLib
+import time
 
 import bpy
 from bpy.props import PointerProperty, StringProperty, FloatProperty
 from bpy.types import PropertyGroup
 
 
-def ExportFbx(filepath, obj):
-    prevSelected = CenLib.GetSelectedObjects()
-    prevActive = CenLib.GetActiveObject()
-    wasHidden = CenLib.ObjectIsHidden(obj)
+def Get_Active_Visual_Collision_Collections():
+    active = CenLib.GetActiveCollection()
+    if not active:
+        CenLib.PopupError("No collection was active")
+        return None, None, None
 
-    try:
-        CenLib.MakeObjectVisible(obj)
-        CenLib.ClearSelection()
-        CenLib.SelectObject(obj)
+    if active.name == "Scene Collection":
+        CenLib.PopupError("The active collection was the Scene Collection, which is most definitely a mistake.")
+        return None, None, None
 
-        # Export
-        bpy.ops.export_scene.fbx(
-            filepath=filepath,
-            use_selection=True,
-            use_visible=True,  # Now works because we unhid the object
-            object_types={"MESH"},
-            use_triangles=True,
-            axis_forward="Y",
-            axis_up="Z",
-            apply_scale_options="FBX_SCALE_ALL",
-            mesh_smooth_type="FACE",
-            use_mesh_modifiers=True,
-            add_leaf_bones=False,
-            bake_anim=False,
-            path_mode="AUTO",
-        )
-        return True
+    collision = None
+    visual = None
+    for childCollection in CenLib.GetDirectChildCollections(active):
+        if childCollection.name == "Visual":
+            visual = childCollection
+        elif childCollection.name == "Collision":
+            collision = childCollection
+        else:
+            CenLib.PopupError(
+                f"Unrecognized child collection: {childCollection.name}. It must be either Visual or Collision")
 
-    except Exception as e:
-        CenLib.PopupError(f"Export failed for {obj.name}: {str(e)}")
-        return False
-
-    finally:
-        # Restore hide state
-        if wasHidden:
-            CenLib.MakeObjectHidden(obj)
-
-        # Restore selection state
-        CenLib.ClearSelection()
-        for obj in prevSelected:
-            CenLib.SelectObject(obj)
-
-        if CenLib.ObjectExists(prevActive):
-            CenLib.SelectObject(prevActive)
+    return active, visual, collision
 
 
 def ExportToPath(path_property_name, context, doCollection):
-    if CenLib.IsInLocalView():
-        CenLib.PopupError("Exit local view first")
-        return CenLib.Cancelled()
+    state = CenLib.TransitionToExportableState()
 
     settings = context.scene.cenexporter
     path = getattr(settings, path_property_name, "")
@@ -109,7 +86,7 @@ def ExportToPath(path_property_name, context, doCollection):
             filename = f"{obj.name}.fbx"
             filepath = os.path.join(directory, filename)
 
-            if ExportFbx(filepath, obj):
+            if CenLib.ExportFbx(filepath, obj):
                 successCount += 1
 
         # Report results
@@ -131,14 +108,16 @@ def ExportToPath(path_property_name, context, doCollection):
                 CenLib.MakeObjectHidden(obj)
             else:
                 CenLib.MakeObjectVisible(obj)
+        CenLib.RestoreStateAfterExport(state)
 
 
 def ExportCollectionAsObject(path_property_name, context):
-    """
-    Placeholder for exporting the active collection as a single object.
-    """
-
+    state = CenLib.TransitionToExportableState()
     activeCollection = CenLib.GetActiveCollection()
+    if activeCollection.name == "Scene Collection":
+        CenLib.PopupError(
+            "This addon does not support exporting Scene Collection, which is the collection currently active")
+        return CenLib.Cancelled()
     dupeCollection = CenLib.DuplicateCollection(activeCollection)
     objects = CenLib.GetObjectsInCollection(dupeCollection)
 
@@ -149,7 +128,6 @@ def ExportCollectionAsObject(path_property_name, context):
     CenLib.SetOriginToWorldOrigin(joined)
     CenLib.ApplyScale(joined)
     CenLib.ApplyRotation(joined)
-
 
     settings = context.scene.cenexporter
     path = getattr(settings, path_property_name, "")
@@ -169,23 +147,28 @@ def ExportCollectionAsObject(path_property_name, context):
 
     joined.name = activeCollection.name + "-V_LOD0"
     filepath = os.path.join(directory, f"{activeCollection.name}.fbx")
-    ExportFbx(filepath, joined)
+    CenLib.ExportFbx(filepath, joined)
 
     CenLib.DeleteCollection(dupeCollection)
 
     CenLib.PopupPrint(f"Exported {activeCollection.name} as object!")
+    CenLib.RestoreStateAfterExport(state)
 
     return CenLib.Finished()
 
 
-def ExportCollectionAsLodPair(path_property_name, context, lod1Density):
-    """
-    Placeholder for exporting the active collection as a LOD pair.
-    """
-    # TODO: Implement export collection as LOD pair
-    activeCollection = CenLib.GetActiveCollection()
-    dupeCollection = CenLib.DuplicateCollection(activeCollection)
-    objects = CenLib.GetObjectsInCollection(dupeCollection)
+def ExportCollectionAsUnifiedLodPair(path_property_name, context, lod1Density):
+    startTime = time.time()
+    state = CenLib.TransitionToExportableState()
+
+    activeCollection, visualCollection, collisionCollection = Get_Active_Visual_Collision_Collections()
+    if not visualCollection:
+        CenLib.PopupError(f"Did not find a direct-child collection of {activeCollection.name} named Visual")
+        return CenLib.Cancelled()
+
+    # Visuals
+    visualCollectionDupe = CenLib.DuplicateCollection(visualCollection)
+    objects = CenLib.GetObjectsInCollection(visualCollectionDupe)
 
     for obj in objects:
         CenLib.ConvertToMesh(obj)
@@ -207,13 +190,145 @@ def ExportCollectionAsLodPair(path_property_name, context, lod1Density):
     ExportObject(path_property_name, context, lod0)
     ExportObject(path_property_name, context, lod1)
 
-    CenLib.PopupPrint(f"Successfully exported {lod0.name} and {lod1.name}!")
+    CenLib.DeleteCollection(visualCollectionDupe)
+
+    # Collision 
+    if collisionCollection:
+        collisionCollectionDupe = CenLib.DuplicateCollection(collisionCollection)
+        allCollisionObjects = CenLib.GetObjectsInCollection(collisionCollectionDupe)
+
+        for collision in allCollisionObjects:
+            CenLib.ConvertToMesh(collision)
+
+        joinedCollision = CenLib.JoinObjects(allCollisionObjects)
+        CenLib.SetOriginToWorldOrigin(joinedCollision)
+        CenLib.ApplyScale(joinedCollision)
+        CenLib.ApplyRotation(joinedCollision)
+
+        joinedCollision.name = activeCollection.name + "-C"
+        ExportObject(path_property_name, context, joinedCollision)
+
+        CenLib.DeleteCollection(collisionCollectionDupe)
+
+    totalSeconds = time.time() - startTime
+    CenLib.PopupPrint(
+        f"Successfully exported the collection as a unified lod pair! It took {totalSeconds:.3f} seconds.")
+    CenLib.RestoreStateAfterExport(state)
+
+    return CenLib.Finished()
+
+
+def ExportCollectionAsDisjointLodPairs(path_property_name, context, lod1Density):
+    startTime = time.time()
+    state = CenLib.TransitionToExportableState()
+
+    activeCollection, visualCollection, collisionCollection = Get_Active_Visual_Collision_Collections()
+    if not visualCollection:
+        CenLib.PopupError(f"Did not find a direct-child collection of {activeCollection.name} named Visual")
+        return CenLib.Cancelled()
+
+    # Visuals 
+    dupeCollection = CenLib.DuplicateCollection(visualCollection, "WORKING_DUPE_COLLECTION")
+    baseName = activeCollection.name
+    partIndex = 0
+    for lod0 in CenLib.GetObjectsInCollection(dupeCollection):
+        partIndex += 1
+        lod0.name = f"{baseName}_Part{partIndex}-V_LOD0"
+        CenLib.ConvertToMesh(lod0)
+
+        CenLib.SetOriginToWorldOrigin(lod0)
+        CenLib.ApplyRotation(lod0)
+        CenLib.ApplyScale(lod0)
+
+        lod1 = CenLib.DuplicateObject(lod0, False)
+        lod1.name = f"{baseName}_Part{partIndex}-V_LOD1"
+        decimateMod = CenLib.AddModifier(lod1, "Lod1Decimate", "DECIMATE")
+        CenLib.SetModifierProperty(decimateMod, "ratio", lod1Density)
+
+        ExportObject(path_property_name, context, lod0)
+        ExportObject(path_property_name, context, lod1)
 
     CenLib.DeleteCollection(dupeCollection)
 
+    # Collision
+    if collisionCollection is not None:
+        collisionIndex = 0
+        for collisionObj in CenLib.GetObjectsInCollection(collisionCollection):
+            collisionIndex += 1
+            collisionDupe = CenLib.DuplicateObject(collisionObj)
+            collisionName = f"{baseName}_CollisionPart{collisionIndex}-C"
+            collisionDupe.name = collisionName
+            CenLib.SetOriginToWorldOrigin(collisionDupe)
+            CenLib.ApplyRotation(collisionDupe)
+            CenLib.ApplyScale(collisionDupe)
 
+            ExportObject(path_property_name, context, collisionDupe)
+            CenLib.DeleteObject(collisionDupe)
 
+    totalTime = time.time() - startTime
+    CenLib.PopupPrint(
+        f"Successfully exported {activeCollection.name} as a series of {partIndex} disjoint LOD pairs! It took {totalTime:.3f} seconds.")
+    CenLib.RestoreStateAfterExport(state)
     return CenLib.Finished()
+
+
+def ExportCollectionAsClusteredLodPairs(path_property_name, context, lod1Density, cellSize):
+    return _ClusteredLodPairs(path_property_name, context, lod1Density, cellSize, False)
+
+
+def SplitThenCollectionAsClusteredLodPairs(path_property_name, context, lod1Density, cellSize):
+    return _ClusteredLodPairs(path_property_name, context, lod1Density, cellSize, True)
+    
+def _ClusteredLodPairs(path_property_name, context, lod1Density, cellSize, splitFirst):
+    state = CenLib.TransitionToExportableState()
+    startTime = time.time()
+    activeCollection = CenLib.GetActiveCollection()
+
+    if not activeCollection or activeCollection.name == "Scene Collection":
+        CenLib.PopupError("Please select a valid collection first")
+        return CenLib.Cancelled()
+
+    workingCollection = CenLib.DuplicateCollection(activeCollection, False)
+    workingCollection.name = "TEMPORARY_WORKING_COLLECTION"
+
+
+    print(f"Duplicated into the working collection ({(time.time() - startTime):.3f} seconds")
+
+    for obj in CenLib.GetObjectsInCollection(workingCollection):
+        CenLib.ConvertToMesh(obj)
+        if splitFirst:
+            CenLib.SeparateLoose(obj)
+
+    print(f"Converted the input objects to mesh ({(time.time() - startTime):.3f} seconds")
+    CenLib.ClusterObjectsInInputCollection(workingCollection, cellSize)
+    print(f"Clustered the working collection ({(time.time() - startTime):.3f} seconds")
+
+    partIndex = 0
+    clusters = CenLib.GetObjectsInCollection(workingCollection)
+    for lod0 in clusters:
+        partIndex += 1
+        lod1 = CenLib.DuplicateObject(lod0, False)
+        lod0.name = f"{activeCollection.name}Clustered_Part{partIndex}-V_LOD0"
+        lod1.name = f"{activeCollection.name}Clustered_Part{partIndex}-V_LOD1"
+
+        dec = CenLib.AddModifier(lod1, "lod1Decimate", 'DECIMATE')
+        CenLib.SetModifierProperty(dec, 'ratio', lod1Density)
+
+        CenLib.SetOriginToWorldOrigin(lod0)
+        CenLib.SetOriginToWorldOrigin(lod1)
+        CenLib.ApplyTransforms(lod0)
+        CenLib.ApplyTransforms(lod1)
+
+        ExportObject(path_property_name, context, lod0)
+        ExportObject(path_property_name, context, lod1)
+        print(f"Exported part {partIndex} of {len(clusters)} ({(time.time() - startTime):.3f} seconds")
+
+    CenLib.DeleteCollection(workingCollection)
+
+    elapsed = CenLib.RestoreStateAfterExport(state)
+    CenLib.PopupPrint(f"Successfully exported {activeCollection.name} in {elapsed:.3f} seconds!")
+    return CenLib.Finished()
+
 
 def ExportObject(path_property_name, context, object):
     settings = context.scene.cenexporter
@@ -233,7 +348,39 @@ def ExportObject(path_property_name, context, object):
         return CenLib.Cancelled()
 
     filepath = os.path.join(directory, f"{object.name}.fbx")
-    ExportFbx(filepath, object)
+    CenLib.ExportFbx(filepath, object)
+    return CenLib.Finished()
+
+
+def GeneratePreviewOfCollection(path_property_name, context):
+    activeCollection = CenLib.GetActiveCollection()
+    if not activeCollection or activeCollection.name == "Scene Collection":
+        CenLib.PopupError("Please select a valid collection first")
+        return CenLib.Cancelled()
+
+
+    workingCollection = CenLib.DuplicateCollection(activeCollection)
+    workingObjects = CenLib.GetObjectsInCollection(workingCollection)
+    for obj in workingObjects:
+        CenLib.ConvertToMesh(obj)
+
+    joined = CenLib.JoinObjects(workingObjects)
+
+
+    previewObjectName = f"{activeCollection.name}-Preview"
+    previewCollection = CenLib.GetOrCreateCollection("PREVIEWS")
+
+    for obj in CenLib.GetObjectsInCollection(previewCollection):
+        if obj.name == previewObjectName:
+            CenLib.DeleteObject(obj)
+
+    joined.name = previewObjectName
+    CenLib.MoveToCollection(joined, previewCollection)
+    CenLib.DeleteCollection(workingCollection)
+    return CenLib.Finished()
+
+
+
 
 # ---------- operators ----------
 class CENEXPORTER_OT_export_path1(bpy.types.Operator):
@@ -270,7 +417,48 @@ class CENEXPORTER_OT_export_collection_as_lod_pair(bpy.types.Operator):
 
     def execute(self, context):
         lod1Density = context.scene.cenexporter.lod1_density
-        return ExportCollectionAsLodPair("path1", context, lod1Density)
+        return ExportCollectionAsUnifiedLodPair("path1", context, lod1Density)
+
+
+class CENEXPORTER_OT_export_collection_as_disjoint_lod_pairs(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_disjoint_lod_pairs"
+    bl_label = "Export Collection as Disjoint LOD Pairs"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        lod1Density = context.scene.cenexporter.lod1_density
+        return ExportCollectionAsDisjointLodPairs("path1", context, lod1Density)
+
+
+class CENEXPORTER_OT_export_collection_as_clustered_lod_pairs(bpy.types.Operator):
+    bl_idname = "cenexporter.export_collection_as_clustered_lod_pairs"
+    bl_label = "Export Collection as Clustered LOD Pairs"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        lod1Density = context.scene.cenexporter.lod1_density
+        cellSize = context.scene.cenexporter.cell_size
+        return ExportCollectionAsClusteredLodPairs("path1", context, lod1Density, cellSize)
+
+
+class CENEXPORTER_OT_split_then_collision_as_clustered_lod_pairs(bpy.types.Operator):
+    bl_idname = "cenexporter.split_then_collision_as_clustered_lod_pairs"
+    bl_label = "Split then Collection as Clustered LOD Pairs"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        lod1Density = context.scene.cenexporter.lod1_density
+        cellSize = context.scene.cenexporter.cell_size
+        return SplitThenCollectionAsClusteredLodPairs("path1", context, lod1Density, cellSize)
+
+
+class CENEXPORTER_OT_generate_preview(bpy.types.Operator):
+    bl_idname = "cenexporter.generate_preview"
+    bl_label = "Generate Preview of Collection"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return GeneratePreviewOfCollection("path1", context)
 
 
 class CENEXPORTER_OT_pick_path1(bpy.types.Operator):
@@ -306,6 +494,13 @@ class CENEXPORTER_PG_settings(PropertyGroup):
         max=1.0,
         subtype="FACTOR",
     )
+    cell_size: FloatProperty(
+        name="Cell Size",
+        description="Cell size used for clustered LOD pair export",
+        default=25,
+        min=0.0,
+        subtype="DISTANCE",
+    )
 
 
 # ---------- UI panel ----------
@@ -314,7 +509,7 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
     bl_idname = "CENEXPORTER_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Centradigon"
+    bl_category = "Exports"
 
     def draw(self, context):
         layout = self.layout
@@ -342,8 +537,8 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
             box.label(
                 text=f"Collection: {col_name}", icon="OUTLINER_COLLECTION"
             )
-            box.label(text=f"Object: {obj_name}", icon="OBJECT_DATA")
             box.label(text=f"Objects in Collection: {len(objects)}", icon="OBJECT_DATA")
+            box.label(text=f"Active Object: {obj_name}", icon="OBJECT_DATA")
             box.label(text=f"Selected Objects: {len(mesh_selected)}", icon="SELECT_SET")
         else:
             box.label(text="Collection: <none>", icon="OUTLINER_COLLECTION")
@@ -359,7 +554,8 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         # Three buttons, each on its own full row
         layout.operator("cenexporter.export_selection_path1", text="Selection as Individual Objects", icon="SELECT_SET")
         layout.operator("cenexporter.export_path1", text="Collection as Individual Objects", icon="OUTLINER_COLLECTION")
-        layout.operator("cenexporter.export_collection_as_object1", text="Collection as Single Object", icon="OUTLINER_COLLECTION")
+        layout.operator("cenexporter.export_collection_as_object1", text="Collection as Single Object",
+                        icon="OUTLINER_COLLECTION")
 
         layout.separator()
 
@@ -367,7 +563,34 @@ class CENEXPORTER_PT_panel(bpy.types.Panel):
         layout.prop(settings, "lod1_density", text="LOD1 Density")
 
         # Collection as LOD Pair button
-        layout.operator("cenexporter.export_collection_as_lod_pair", text="Collection as LOD Pair", icon="OUTLINER_COLLECTION")
+        layout.operator("cenexporter.export_collection_as_lod_pair", text="Collection as Unified LOD Pair",
+                        icon="OUTLINER_COLLECTION")
+
+        # Collection as Disjoint LOD Pairs button
+        layout.operator("cenexporter.export_collection_as_disjoint_lod_pairs", text="Collection as Disjoint LOD Pairs",
+                        icon="OUTLINER_COLLECTION")
+
+        layout.separator()
+
+        # Cell Size field
+        layout.prop(settings, "cell_size", text="Cell Size")
+
+        # Collection as Clustered LOD Pairs button
+        layout.operator("cenexporter.export_collection_as_clustered_lod_pairs",
+                        text="Collection as Clustered LOD Pairs",
+                        icon="OUTLINER_COLLECTION")
+
+        # Split then Collision as Clustered LOD Pairs button
+        layout.operator("cenexporter.split_then_collision_as_clustered_lod_pairs",
+                        text="Split then Collision as Clustered LOD Pairs",
+                        icon="OUTLINER_COLLECTION")
+
+        layout.separator()
+
+        # Generate Preview of Collection button
+        layout.operator("cenexporter.generate_preview",
+                        text="Generate Preview of Collection",
+                        icon="RESTRICT_VIEW_OFF")
 
 
 # ---------- registration ----------
@@ -377,6 +600,10 @@ classes = (
     CENEXPORTER_OT_export_selection_path1,
     CENEXPORTER_OT_export_collection_as_object1,
     CENEXPORTER_OT_export_collection_as_lod_pair,
+    CENEXPORTER_OT_export_collection_as_disjoint_lod_pairs,
+    CENEXPORTER_OT_export_collection_as_clustered_lod_pairs,
+    CENEXPORTER_OT_split_then_collision_as_clustered_lod_pairs,
+    CENEXPORTER_OT_generate_preview,
     CENEXPORTER_OT_pick_path1,
     CENEXPORTER_PT_panel,
 )

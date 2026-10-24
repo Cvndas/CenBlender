@@ -3,9 +3,9 @@ bl_info = {
     "author": "Lrodas",
     "version": (1, 0),
     "blender": (4, 5, 0),
-    "location": "View3D > Sidebar > Centradigon Tab",
+    "location": "View3D > Sidebar > Cen Tab",
     "description": "Safely export animations to Unity, for the game \"The Pact of Centradigon\"",
-    "category": "Centradigon Tools",
+    "category": "Cen Tools",
 }
 
 from gc import collect
