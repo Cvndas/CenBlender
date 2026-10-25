@@ -22,13 +22,14 @@ class CenAnimatePanel(Panel):
     bl_idname = "VIEW3D_PT_CenAnimate"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Centradigon"
+    bl_category = "CenAnimate"
 
     def draw(self, context : Context):
         layout = self.layout
         col_layout = layout.column(align=False)
 
-        col_layout.operator("wm.prepare_collections", icon="OUTLINER_COLLECTION")
+        col_layout.operator("wm.prepare_collections_for_source", icon="OUTLINER_COLLECTION")
+        col_layout.operator("wm.prepare_collections_for_animation_files", icon="OUTLINER_COLLECTION")
 
         col_layout.separator()
 
@@ -42,14 +43,25 @@ class CenAnimatePanel(Panel):
         col_layout.separator()
 
         col_layout.operator("wm.export_meshes", icon="MESH_DATA")
+        col_layout.prop(context.scene, "lod_decimate_ratio")
+        col_layout.operator("wm.export_meshes_with_lods", icon="MESH_DATA")
 
 
-class PrepareCollections(bpy.types.Operator):
-    bl_idname = "wm.prepare_collections"
-    bl_label = "Prepare Collections"
+class PrepareCollectionsForSource(bpy.types.Operator):
+    bl_idname = "wm.prepare_collections_for_source"
+    bl_label = "Prepare Collections for Source File"
 
     def execute(self, context):
-        PrepareCollections()
+        PrepareCollectionsForSource()
+        return CenLib.Finished()
+
+
+class PrepareCollectionsForAnimationFiles(bpy.types.Operator):
+    bl_idname = "wm.prepare_collections_for_animation_files"
+    bl_label = "Prepare Collections for Animation Files"
+
+    def execute(self, context):
+        PrepareCollectionsForAnimationFiles()
         return CenLib.Finished()
 
 
@@ -76,10 +88,26 @@ class ExportMeshes(bpy.types.Operator):
         )
 
 
+class ExportMeshesWithLods(bpy.types.Operator):
+    bl_idname = "wm.export_meshes_with_lods"
+    bl_label = "Export Meshes With Lods"
+
+    def execute(self, context):
+        if not context.scene.output_directory_path:
+            CenLib.PopupError("You forgot to set the output path!")
+            return CenLib.Cancelled()
+        return ExportMeshesWithLods(
+            context.scene.output_directory_path,
+            context.scene.lod_decimate_ratio
+        )
+
+
 classes = [
-    PrepareCollections,
+    PrepareCollectionsForSource,
+    PrepareCollectionsForAnimationFiles,
     ExportAnimation,
     ExportMeshes,
+    ExportMeshesWithLods,
     CenAnimatePanel,
 ]
 
@@ -95,6 +123,14 @@ def register() -> None:
         subtype='FILE_PATH'
     )
 
+    bpy.types.Scene.lod_decimate_ratio = bpy.props.FloatProperty(
+        name="LOD Decimate Ratio",
+        description="Decimate ratio for LOD1",
+        default=0.4,
+        min=0.0,
+        max=1.0
+    )
+
     # bpy.types.Scene.output_name = bpy.props.StringProperty(
     #     name="Name",
     #     description="The name for the output fbx file"
@@ -107,6 +143,7 @@ def unregister() -> None:
         bpy.utils.unregister_class(c)
 
     del bpy.types.Scene.output_directory_path
+    del bpy.types.Scene.lod_decimate_ratio
     del bpy.types.Scene.mesh_collection_name
 
     print("Unregistered CenAnimate")
@@ -123,9 +160,14 @@ def unregister() -> None:
 import os
 
 
-def PrepareCollections():
-    meshExport = CenLib.CreateCollection(f"{CenLib.GetCurrentFileName()}_MeshExport")
-    animExport = CenLib.CreateCollection(f"{CenLib.GetCurrentFileName()}_AnimExport")
+def PrepareCollectionsForSource():
+    fileName = CenLib.GetCurrentFileName()
+    if fileName is None or fileName is "":
+        CenLib.PopupError("Save the file first (FileName is important)")
+        return CenLib.Cancelled()
+
+    meshExport = CenLib.CreateCollection(f"{fileName}_MeshExport")
+    animExport = CenLib.CreateCollection(f"{fileName}_AnimExport")
     dontExportAnim = CenLib.CreateCollection("DontExportAnim")
     exportToUnity = CenLib.CreateCollection("ExportToUnity")
     dontExportToUnity = CenLib.CreateCollection("DontExportToUnity")
@@ -133,6 +175,20 @@ def PrepareCollections():
     CenLib.MakeCollectionChildOf(dontExportAnim, meshExport)
     CenLib.MakeCollectionChildOf(exportToUnity, dontExportAnim)
     CenLib.MakeCollectionChildOf(dontExportToUnity, dontExportAnim)
+    return CenLib.Finished()
+
+
+def PrepareCollectionsForAnimationFiles():
+    fileName = CenLib.GetCurrentFileName()
+    if fileName is None or fileName is "":
+        CenLib.PopupError("Save the file first (FileName is important)")
+        return CenLib.Cancelled()
+
+    animExport = CenLib.CreateCollection(f"{fileName}_AnimExport")
+    dontExportAnim = CenLib.CreateCollection("DontExportAnim")
+    CenLib.MakeCollectionChildOf(dontExportAnim, animExport)
+    return CenLib.Finished()
+
 
 
 
@@ -312,7 +368,6 @@ def ExportAnimation(dir : str):
 
 
 
-
 def ExportMeshes(dir: str):
     start = time.time()
 
@@ -409,5 +464,35 @@ def ExportMeshes(dir: str):
     if originalActiveCollection:
         CenLib.SetCollectionToActive(originalActiveCollection)
 
+
+    return CenLib.Finished()
+
+
+
+
+def ExportMeshesWithLods(dir: str, decimateRatio: float):
+    exportToUnity = CenLib.GetCollectionByName("ExportToUnity")
+    if not exportToUnity:
+        CenLib.PopupError("Failed to find the ExportToUnity collection")
+
+    renamedToLod0 = []
+    lod1sToDelete = []
+    for lod0 in CenLib.GetObjectsInCollection(exportToUnity):
+        baseName = lod0.name
+        lod0.name = f"{baseName}_LOD0"
+        renamedToLod0.append(lod0)
+
+        lod1 = CenLib.DuplicateObject(lod0, False)
+        decimate = CenLib.AddModifier(lod1, "LOD1Decimate", 'DECIMATE')
+        CenLib.SetModifierProperty(decimate, 'ratio', decimateRatio)
+        lod1.name = f"{baseName}_LOD1"
+        lod1sToDelete.append(lod1)
+
+    ExportMeshes(dir)
+    for obj in renamedToLod0:
+        obj.name = obj.name.split("_LOD0", 1)[0]
+
+    for obj in lod1sToDelete:
+        CenLib.DeleteObject(obj)
 
     return CenLib.Finished()
